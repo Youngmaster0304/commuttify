@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# runtime artifacts
+outputs/
+*.log
+*.err
+
+# static GTFS from the portal (re-downloadable; stop_times.txt > GitHub limit)
+data/gtfs/
+data/*.zip

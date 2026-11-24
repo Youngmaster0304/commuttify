@@ -1,0 +1,5 @@
+# PostGIS for commuttify.
+# postgis/postgis ships the PostGIS extension already; pgRouting is NOT
+# needed — topology (route_nodes + source/target) is built by
+# sql/010_topology.sql in pure PostGIS, and all routing runs in Python.
+FROM postgis/postgis:16-3.4
