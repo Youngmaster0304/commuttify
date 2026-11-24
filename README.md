@@ -12,8 +12,8 @@ Google Directions calls in the serving path.
   graph (fastest / balanced / fewest-transfers options).
 - **ETA math is ours** — edge travel times resolve **live → historical →
   schedule**: real-time GTFS-RT speeds (10 s polls, 15 min trust window),
-  historical day-of-week × hour averages from 11 days of GPS traces
-  (~34 GB SQLite), then GTFS schedule as the base.
+  historical day-of-week × hour averages from 30 days of GPS traces
+  (~125 GB SQLite), then GTFS schedule as the base.
 - **Recommendation engine** — `GET /api/search/autocomplete?q=` (type a word →
   top-10 places, fuzzy tiers, metro-parity with commutify).
 - **Chatbot** — `POST /api/chat` Delhi-bus-only assistant that replies in
@@ -32,7 +32,7 @@ Google Directions calls in the serving path.
 flowchart LR
     subgraph Sources
         A1["Static GTFS<br/>(delhi.transportstack.in)"]
-        A2["Historical GPS<br/>11 SQLite days (~34 GB)"]
+        A2["Historical GPS<br/>30 SQLite days (~125 GB)"]
         A3["GTFS-RT live feed<br/>(10 s polls)"]
         A4["Public web sources<br/>Delhi traffic & police"]
     end
@@ -149,7 +149,7 @@ the ETA math is fully inspectable.
 | Cache / live | Redis | 10 s GTFS-RT writes, O(1) edge lookups |
 | Live feed | httpx polling, `x-api-key` header | portal GTFS-RT every 10 s |
 | Routing | pure-Python time-dependent Dijkstra | fastest/balanced/fewest presets, no external solver |
-| Historical | pandas + SQLite readers → `psycopg2.execute_values` | 34 GB day files streamed in 100 k-row chunks |
+| Historical | pandas + SQLite readers → `psycopg2.execute_values` | 125 GB day files streamed in 100 k-row chunks |
 | Search | rapidfuzz over place index | type-2 fuzzy tiers, top-10 autocomplete |
 | Chatbot | Groq (`gpt-oss-120b`) → fallback → rules | replies in EN/हिन्दी/Hinglish; rules work with zero keys |
 | Live alerts | `live_crawler.py` web scraping | traffic + police incidents → `/api/tweets` feed |
