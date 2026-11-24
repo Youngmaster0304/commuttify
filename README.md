@@ -16,9 +16,11 @@ Google Directions calls in the serving path.
   (~34 GB SQLite), then GTFS schedule as the base.
 - **Recommendation engine** — `GET /api/search/autocomplete?q=` (type a word →
   top-10 places, fuzzy tiers, metro-parity with commutify).
-- **Chatbot** — `POST /api/chat` Delhi-bus-only assistant: intent detection +
-  local engine context, LLM (primary OpenAI-compatible endpoint →
-  [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) fallback → rules).
+- **Chatbot** — `POST /api/chat` Delhi-bus-only assistant that replies in
+  English, Hindi or Hinglish: intent detection + local engine context, LLM
+  chain (Groq `gpt-oss-120b` → fallback → rules).
+- **Live traffic & police alerts** — `live_crawler.py` scrapes public Delhi
+  traffic/police sources → `GET /api/tweets` → on-map feed.
 - **Frontend** — React + Vite showcase: transit map, journey cards, live
   tweets feed, fare calculator, chatbot drawer.
 - **Validation** — `backend/validate_model.py` checks predictions against
@@ -32,33 +34,37 @@ flowchart LR
         A1["Static GTFS<br/>(delhi.transportstack.in)"]
         A2["Historical GPS<br/>11 SQLite days (~34 GB)"]
         A3["GTFS-RT live feed<br/>(10 s polls)"]
+        A4["Public web sources<br/>Delhi traffic & police"]
     end
 
     subgraph Ingest
         B1["ingest_gtfs.py<br/>stops · routes · trips<br/>stop_times · shapes"]
         B2["process_historical.py<br/>snap → speed cells<br/>day × hour averages"]
         B3["live_feed_worker.py<br/>SegmentSnapIndex<br/>speed decay 15 min"]
+        B4["live_crawler.py<br/>traffic + police scrape"]
     end
 
     subgraph Storage
-        C1[("PostgreSQL / PostGIS<br/>:5433")]
-        C2[("Redis<br/>live:seg:*")]
+        C1[("PostgreSQL / PostGIS<br/>local :5433 · Render prod")]
+        C2[("Redis<br/>live:seg:* (optional)")]
+        C3[("tweets store<br/>(in-process)")]
     end
 
     subgraph Engine
         D1["routing.py<br/>time-dependent Dijkstra<br/>3 presets: fastest/<br/>balanced/fewest"]
         D2["recommend.py<br/>fuzzy place search"]
-        D3["chatbot.py<br/>LLM chain + rules"]
+        D3["chatbot.py<br/>Groq LLM → fallback → rules<br/>EN · हिन्दी · Hinglish"]
     end
 
     subgraph Serving
-        E1["FastAPI backend.main<br/>:8010 · /journeys · /api/*"]
-        E2["frontend/ (React + Vite)<br/>map · cards · chatbot"]
+        E1["FastAPI backend.main<br/>/journeys · /api/chat<br/>/api/tweets · /api/search"]
+        E2["frontend/ (React + Vite)<br/>map · cards · chatbot · alerts<br/>dev :3000 · Vercel prod"]
     end
 
     A1 --> B1 --> C1
     A2 --> B2 --> C1
     A3 --> B3 --> C2
+    A4 --> B4 --> C3
     C1 --> D1
     C2 --> D1
     C1 --> D2
@@ -66,11 +72,15 @@ flowchart LR
     D1 --> E1
     D2 --> E1
     D3 --> E1
+    C3 --> E1
     E1 <--> E2
 ```
 
-Docker provides **PostGIS (:5433)** and **Redis (:6380)** (ports remapped to
-avoid clashes with other local projects).
+Docker provides **PostGIS (:5433)** and **Redis (:6380)** locally (ports
+remapped to avoid clashes with other local projects). In production
+(`render.yaml`) a single API service runs with `INLINE_WORKER=1` — the
+GTFS-RT poller lives in the API process and falls back to an in-process
+live-speed cache when `REDIS_URL` is empty.
 
 ## Data workflow
 
@@ -80,9 +90,11 @@ flowchart TD
     I1 --> T1["schema 001_schema.sql<br/>stops · routes · trips ·<br/>stop_times · shapes"]
     T1 --> T2["topology 010_topology.sql<br/>shape → route_segments<br/>80,861 edges + nodes"]
     S2["11 × bus_movements_*.db"] --> H1["process_historical.py<br/>--chunksize 100000<br/>(2 workers/week — RAM bound)"]
-    H1 --> H2["historical_segment_speeds<br/>4.7 M samples →<br/>71,676 segment cells"]
+    H1 --> H2["historical_segment_speeds<br/>4.7 M dow × hour cells<br/>over 80,861 segments"]
     S3["GTFS-RT API key"] --> W1["live_feed_worker"]
-    W1 --> W2["Redis live:seg:*<br/>trust window 15 min"]
+    W1 --> W2["Redis live:seg:*<br/>trust window 15 min<br/>(in-process cache if no Redis)"]
+    S4["Traffic / police<br/>web sources"] --> W3["live_crawler.py<br/>scrape + geocode"]
+    W3 --> W4["tweets store →<br/>GET /api/tweets"]
     T2 --> G["GraphCache (in-proc)<br/>route_nodes + route_segments"]
     H2 --> G
     W2 --> G
@@ -139,10 +151,12 @@ the ETA math is fully inspectable.
 | Routing | pure-Python time-dependent Dijkstra | fastest/balanced/fewest presets, no external solver |
 | Historical | pandas + SQLite readers → `psycopg2.execute_values` | 34 GB day files streamed in 100 k-row chunks |
 | Search | rapidfuzz over place index | type-2 fuzzy tiers, top-10 autocomplete |
-| Chatbot | OpenAI-compatible chain → FreeLLMAPI → rules | works with zero keys configured |
+| Chatbot | Groq (`gpt-oss-120b`) → fallback → rules | replies in EN/हिन्दी/Hinglish; rules work with zero keys |
+| Live alerts | `live_crawler.py` web scraping | traffic + police incidents → `/api/tweets` feed |
 | Validation | pandas + matplotlib (scatter) | observed GPS vs predicted vs Google (offline) |
 | Frontend | React 19, Vite, TanStack Router, Tailwind/shadcn | showcase map UI |
-| Infra | Docker Compose (db + redis) | one-command up |
+| Infra | Docker Compose (local) · Render + Vercel (cloud) | one-command local up; single-service deploy with inline worker |
+| Deploy | `render.yaml` blueprint, `Dockerfile`, `DEPLOY.md` | API + PostGIS on Render, frontend on Vercel, UptimeRobot ping |
 
 ## Data model (core tables)
 
@@ -196,7 +210,10 @@ Copy `.env.example` → `.env` first and fill in `GTFS_RT_KEY`
 | `GET /api/search/autocomplete?q=rohini` | top-10 place suggestions |
 | `POST /api/search/refresh` | reload place cache after re-ingest |
 | `POST /api/graph/refresh` | drop routing graph + historical cache |
-| `POST /api/chat` `{"message": "..."}` | Delhi-bus-only chatbot `{"reply": "..."}` |
+| `POST /api/chat` `{"message": "..."}` | Delhi-bus-only chatbot `{"reply": "..."}` (EN/हिन्दी/Hinglish) |
+| `GET /api/tweets?category=` | live Delhi traffic & police alert feed (geocoded) |
+| `POST /api/tweets/refresh` | re-scrape public sources, refresh the feed |
+| `GET /api/network-status` | modeled network summary stats |
 
 Example:
 
@@ -238,21 +255,38 @@ Run it with `npm run dev` after the backend is up (API base in
 ## Layout
 
 ```
-backend/          FastAPI app, routing, ingest, live worker, chatbot, validation
+backend/          FastAPI app, routing, ingest, live worker, crawler, chatbot, validation
 frontend/         React showcase (separately owned)
 sql/              001_schema.sql (PostGIS), 010_topology.sql (pure-PostGIS graph)
 data/gtfs/        static GTFS (drop portal download here; not committed)
 data/gtfs_sample/ tiny sample feed for tests
 outputs/          run logs, validation report, observed actuals cache (not committed)
-docker-compose.yml, Dockerfile.db, requirements.txt, .env.example, README.md
+Dockerfile, render.yaml, DEPLOY.md, docker-compose.yml, Dockerfile.db,
+requirements.txt, .env.example, README.md
 ```
+
+## Deployment (cloud)
+
+- **API + DB** — Render: Docker image from root `Dockerfile`, blueprint in
+  `render.yaml` (free web service, `/health` check, `INLINE_WORKER=1`),
+  PostGIS database in Singapore. Step-by-step: [`DEPLOY.md`](DEPLOY.md).
+- **Frontend** — Vercel (`vercel.json` ready); set `VITE_API_BASE` to the
+  Render service URL.
+- **Uptime** — UptimeRobot pings `/health` (Render free tier sleeps).
 
 ## Chatbot LLM endpoints
 
 1. `CHATBOT_LLM_URL/_MODEL/_KEY` — primary OpenAI-compatible endpoint
-2. `CHATBOT_FALLBACK_URL/_MODEL/_KEY` — defaults to a local FreeLLMAPI router
-   (`http://localhost:3001/v1/chat/completions`, unified key from its dashboard)
+   (deployed: Groq, `openai/gpt-oss-120b`)
+2. `CHATBOT_FALLBACK_URL/_MODEL/_KEY` — defaults to a local
+   [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router
+   (`http://localhost:3001/v1/chat/completions`); deployed value: Groq
+   `qwen/qwen3.8-27b`
 3. rule-based fallback — always works with no keys configured
+
+Keyless public URLs are skipped (no wasted calls). The reply is phrased in
+the user's language — English, Hindi (Devanagari) or Hinglish — and the
+prompt forbids inventing frequencies, fares or timings.
 
 Scope is enforced: off-topic questions get a refusal pointing back to Delhi
 bus topics (both in the system prompt and a pre-LLM keyword gate).

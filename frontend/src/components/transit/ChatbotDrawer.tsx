@@ -3,6 +3,7 @@ import { Bot, MessageSquare, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendChatMessage } from "@/lib/api";
+import { ChatMarkdown } from "@/lib/chat-markdown";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -144,7 +145,11 @@ export function ChatbotDrawer() {
                         : "bg-muted/80 text-foreground rounded-tl-xs border border-border/50"
                     )}
                   >
-                    {m.text}
+                    {m.sender === "bot" ? (
+                      <ChatMarkdown text={m.text} />
+                    ) : (
+                      m.text
+                    )}
                   </div>
                   <span className="text-[9px] text-muted-foreground mt-0.5 block px-1">
                     {m.time}
