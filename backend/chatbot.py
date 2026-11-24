@@ -77,7 +77,9 @@ SYSTEM_PROMPT = (
     "5. If the local context is empty, say you could not find that in the data "
     "instead of inventing routes.\n"
     "6. Users may write in English, Hindi or Hinglish — ALWAYS reply in the "
-    "same language the user wrote in (Hinglish input gets a Hinglish reply)."
+    "same language the user wrote in (Hinglish input gets a Hinglish reply).\n"
+    "7. NEVER invent bus frequencies, fares, timings, or routes that are not "
+    "in the local context — if it is not there, say it is not available."
 )
 
 
