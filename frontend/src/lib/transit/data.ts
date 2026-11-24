@@ -120,6 +120,7 @@ export interface Preset {
 
 export const PRESETS: Preset[] = [
   { id: "morning", label: "Kashmere Gate → Nehru Place", tag: "Tue · 8:30 AM", origin: "kashmere", destination: "nehru", day: "Tue", minutes: 8 * 60 + 30 },
+  { id: "rajiv-aiims", label: "Rajiv Chowk → AIIMS", tag: "Route 729 · Direct", origin: "rajivchowk", destination: "aiims", day: "Tue", minutes: 9 * 60 },
   { id: "evening", label: "Connaught Place → AIIMS", tag: "Evening peak · 6:15 PM", origin: "cp", destination: "aiims", day: "Thu", minutes: 18 * 60 + 15 },
   { id: "night", label: "Dwarka Sector 21 → Rajiv Chowk", tag: "Late night · 11:00 PM", origin: "dwarka21", destination: "rajivchowk", day: "Fri", minutes: 23 * 60 },
   { id: "weekend", label: "Anand Vihar ISBT → Hauz Khas", tag: "Sun · 1:00 PM", origin: "anandvihar", destination: "hauzkhas", day: "Sun", minutes: 13 * 60 },

@@ -122,13 +122,6 @@ export function AuthModal({ isOpen, onClose, onSuccess, initialMode = "signin" }
                   <Sparkles className="size-3 text-amber-500" />
                   {mode === "signin" ? "Returning Commuter" : "New Commuter"}
                 </span>
-                <button
-                  type="button"
-                  onClick={fillDemo}
-                  className="text-[11px] font-mono text-emerald-600 hover:underline cursor-pointer"
-                >
-                  Demo Account ⚡
-                </button>
               </div>
 
               <h3 className="text-2xl font-display font-bold text-neutral-900 mb-6">

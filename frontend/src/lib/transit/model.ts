@@ -314,7 +314,7 @@ function evaluate(it: Itinerary, day: Day, departMin: number, timetable = false)
 }
 
 function nearbyStops(p: Place, maxKm = MAX_WALK_KM, limit = 4): Stop[] {
-  if (p.stopId) return [STOP_BY_ID[p.stopId]!];
+  if (p.stopId && STOP_BY_ID[p.stopId]) return [STOP_BY_ID[p.stopId]!];
   return STOPS.map((s) => ({ s, d: haversineKm(p, s) }))
     .filter((x) => x.d <= maxKm)
     .sort((a, b) => a.d - b.d)

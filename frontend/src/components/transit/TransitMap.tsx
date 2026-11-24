@@ -64,6 +64,7 @@ export default function TransitMap(props: TransitMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const trafficRef = useRef<L.LayerGroup | null>(null);
   const segLinesRef = useRef<Map<string, L.Polyline>>(new Map());
+  const stopMarkersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const journeyRef = useRef<L.LayerGroup | null>(null);
   const pinsRef = useRef<L.LayerGroup | null>(null);
   const fleetRef = useRef<L.LayerGroup | null>(null);
@@ -162,6 +163,7 @@ export default function TransitMap(props: TransitMapProps) {
           propsRef.current.onPickStop(s.id);
         }
       });
+      stopMarkersRef.current.set(s.id, m);
       m.addTo(stopsLayer);
     }
 
@@ -183,31 +185,130 @@ export default function TransitMap(props: TransitMapProps) {
       map.remove();
       mapRef.current = null;
       segLinesRef.current.clear();
+      stopMarkersRef.current.clear();
       tweetMarkersRef.current.clear();
       busesRef.current = [];
     };
   }, []);
 
-  /* ---------- traffic colors ---------- */
+  /* ---------- active selected journey ---------- */
+  const selected = (props.origin && props.destination)
+    ? (props.journeys.find((j) => j.id === props.selectedId) ?? props.journeys[0] ?? null)
+    : null;
+  const hasSelectedRoute = Boolean(
+    props.origin && props.destination && selected && selected.legs && selected.legs.length > 0
+  );
+  const journeySig = props.journeys.map((j) => j.id).join(",");
+
+  /* ---------- traffic colors & corridor line fading ---------- */
   useEffect(() => {
     const map = mapRef.current;
     const traffic = trafficRef.current;
     if (!map || !traffic) return;
+
+    // Collect all segments and stops traversed by the selected journey
+    const selectedSegmentKeys = new Set<string>();
+    const selectedStopIds = new Set<string>();
+
+    if (hasSelectedRoute && selected) {
+      for (const leg of selected.legs) {
+        if (leg.kind === "bus" && Array.isArray(leg.stops)) {
+          for (let i = 0; i < leg.stops.length; i++) {
+            selectedStopIds.add(leg.stops[i]);
+            if (i < leg.stops.length - 1) {
+              selectedSegmentKeys.add(segmentKey(leg.stops[i], leg.stops[i + 1]));
+            }
+          }
+        } else if (leg.kind === "walk") {
+          if (leg.from && "id" in leg.from && (leg.from as any).id) {
+            selectedStopIds.add((leg.from as any).id);
+          }
+          if (leg.to && "id" in leg.to && (leg.to as any).id) {
+            selectedStopIds.add((leg.to as any).id);
+          }
+        }
+      }
+    }
+
+    // 1. Update background corridor traffic segment polylines
     for (const seg of SEGMENTS) {
       const line = segLinesRef.current.get(seg.id);
       if (!line) continue;
       const v = segmentSpeed(seg, props.day, props.minutes);
       const band = speedBand(v);
-      line.setStyle({ color: bandColor(band) });
+      const isRouteSeg = selectedSegmentKeys.has(seg.id);
+
+      if (hasSelectedRoute) {
+        if (isRouteSeg) {
+          // On the active route: keep subtle trace since bold blue line is drawn above
+          line.setStyle({
+            color: bandColor(band),
+            weight: 2.5,
+            opacity: 0.25,
+          });
+        } else {
+          // Other corridors: FADE at most so they do NOT create disturbance to the real blue line!
+          line.setStyle({
+            color: bandColor(band),
+            weight: 1.8,
+            opacity: 0.10,
+          });
+        }
+      } else {
+        // Normal state when no route is selected: show all corridor lines normally!
+        line.setStyle({
+          color: bandColor(band),
+          weight: 6,
+          opacity: 0.88,
+        });
+      }
+
       const a = STOP_BY_ID[seg.a]!.name;
       const b = STOP_BY_ID[seg.b]!.name;
       line.setTooltipContent(
         `<strong>${a} ↔ ${b}</strong><br/>${Math.round(v)} km/h · ${bandLabel(band)}<br/><span style="opacity:.7">Free-flow ${seg.freeflow} km/h · ${seg.lengthKm.toFixed(1)} km</span>`,
       );
     }
+
+    // 2. Update stop markers
+    for (const s of STOPS) {
+      const marker = stopMarkersRef.current.get(s.id);
+      if (!marker) continue;
+      if (hasSelectedRoute) {
+        if (selectedStopIds.has(s.id)) {
+          marker.setStyle({
+            radius: 5.5,
+            weight: 2.5,
+            opacity: 1,
+            fillOpacity: 1,
+            color: "#1d4ed8",
+            fillColor: "#ffffff",
+          });
+        } else {
+          marker.setStyle({
+            radius: 2.5,
+            weight: 1,
+            opacity: 0.18,
+            fillOpacity: 0.12,
+            color: cssVar("--foreground"),
+            fillColor: cssVar("--card"),
+          });
+        }
+      } else {
+        marker.setStyle({
+          radius: s.popular ? 5 : 4,
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 1,
+          color: cssVar("--foreground"),
+          fillColor: cssVar("--card"),
+        });
+      }
+    }
+
     if (props.showTraffic && !map.hasLayer(traffic)) traffic.addTo(map);
     if (!props.showTraffic && map.hasLayer(traffic)) traffic.remove();
-  }, [props.day, props.minutes, props.showTraffic]);
+  }, [props.day, props.minutes, props.showTraffic, hasSelectedRoute, selected?.id, props.origin?.label, props.destination?.label]);
 
   /* ---------- picking cursor ---------- */
   useEffect(() => {
@@ -234,15 +335,12 @@ export default function TransitMap(props: TransitMapProps) {
   }, [props.origin, props.destination]);
 
   /* ---------- journey highlight ---------- */
-  const selected = props.journeys.find((j) => j.id === props.selectedId) ?? props.journeys[0] ?? null;
-  const journeySig = props.journeys.map((j) => j.id).join(",");
   useEffect(() => {
     const layer = journeyRef.current;
     const map = mapRef.current;
     if (!layer || !map) return;
     layer.clearLayers();
-    const routeColor = cssVar("--route");
-    const casing = cssVar("--card");
+    const routeColor = "#1d4ed8"; // Bold electric royal blue
     const ink = cssVar("--foreground");
     const bounds = L.latLngBounds([]);
 
@@ -251,8 +349,11 @@ export default function TransitMap(props: TransitMapProps) {
       if (selected && j.id === selected.id) continue;
       for (const leg of j.legs) {
         if (leg.kind !== "bus") continue;
-        const pts = leg.stops.map((id) => [STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple);
-        L.polyline(pts, { pane: "journey", color: routeColor, weight: 4, opacity: 0.28, dashArray: "2 8", lineCap: "round" })
+        const pts = leg.stops
+          .map((id) => (STOP_BY_ID[id] ? ([STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple) : null))
+          .filter((p): p is L.LatLngTuple => p !== null);
+        if (pts.length < 2) continue;
+        L.polyline(pts, { pane: "journey", color: "#60a5fa", weight: 3, opacity: 0.20, dashArray: "3 7", lineCap: "round" })
           .on("click", (e) => {
             if (propsRef.current.pickMode) return;
             L.DomEvent.stop(e);
@@ -270,16 +371,26 @@ export default function TransitMap(props: TransitMapProps) {
             [leg.from.lat, leg.from.lng],
             [leg.to.lat, leg.to.lng],
           ];
-          L.polyline(pts, { pane: "journey", color: ink, weight: 3, opacity: 0.75, dashArray: "1 7", lineCap: "round" }).addTo(layer);
+          L.polyline(pts, { pane: "journey", color: ink, weight: 3.5, opacity: 0.8, dashArray: "2 6", lineCap: "round" }).addTo(layer);
           pts.forEach((p) => bounds.extend(p));
           return;
         }
-        const pts = leg.stops.map((id) => [STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple);
-        L.polyline(pts, { pane: "journey", color: casing, weight: 11, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(layer);
-        L.polyline(pts, { pane: "journey", color: routeColor, weight: 6, opacity: 1, lineCap: "round", lineJoin: "round" })
-          .bindTooltip(`Route <strong>${leg.route.number}</strong> · ${leg.from.name} → ${leg.to.name}`, { sticky: true })
-          .addTo(layer);
-        pts.forEach((p) => bounds.extend(p));
+        const pts = leg.stops
+          .map((id) => (STOP_BY_ID[id] ? ([STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple) : null))
+          .filter((p): p is L.LatLngTuple => p !== null);
+
+        if (pts.length >= 2) {
+          // 1. Soft glowing outer aura / halo
+          L.polyline(pts, { pane: "journey", color: "#3b82f6", weight: 15, opacity: 0.35, lineCap: "round", lineJoin: "round" }).addTo(layer);
+          // 2. High-contrast white casing
+          L.polyline(pts, { pane: "journey", color: "#ffffff", weight: 9.5, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(layer);
+          // 3. Crisp vibrant electric blue primary route line
+          L.polyline(pts, { pane: "journey", color: routeColor, weight: 5.5, opacity: 1, lineCap: "round", lineJoin: "round" })
+            .bindTooltip(`Route <strong>${leg.route.number}</strong> · ${leg.from.name} → ${leg.to.name}`, { sticky: true })
+            .addTo(layer);
+          pts.forEach((p) => bounds.extend(p));
+        }
+
         // Transfer marker at the boarding stop of every bus leg after the first
         const prevBus = selected.legs.slice(0, idx).some((l) => l.kind === "bus");
         if (prevBus) {
@@ -297,7 +408,7 @@ export default function TransitMap(props: TransitMapProps) {
     if (props.destination) bounds.extend([props.destination.lat, props.destination.lng]);
     if (bounds.isValid()) map.flyToBounds(bounds, { padding: [70, 70], maxZoom: 14, duration: 0.8 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journeySig, selected?.id]);
+  }, [journeySig, selected?.id, hasSelectedRoute]);
 
   /* ---------- simulated fleet ---------- */
   useEffect(() => {

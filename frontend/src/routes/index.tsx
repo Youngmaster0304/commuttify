@@ -80,7 +80,6 @@ function Index() {
   const [focusedTweet, setFocusedTweet] = useState<TweetData | null>(null);
   const [pickMode, setPickMode] = useState<PickTarget | null>(null);
   const [backendLive, setBackendLive] = useState(false);
-  const [backendOverrides, setBackendOverrides] = useState<{ [label: string]: number }>({});
 
   useEffect(() => {
     fetchLiveTweets()
@@ -88,7 +87,7 @@ function Index() {
       .catch(() => {});
   }, []);
 
-  // Fetch real-time journeys from FastAPI PostGIS & Redis routing backend
+  // Ping real-time FastAPI PostGIS & Redis routing backend to verify live connectivity
   useEffect(() => {
     if (!origin || !destination) return;
     let active = true;
@@ -97,13 +96,8 @@ function Index() {
         if (!active) return;
         if (data && Array.isArray(data.options) && data.options.length > 0) {
           setBackendLive(true);
-          const mapTimes: { [k: string]: number } = {};
-          data.options.forEach((opt: any) => {
-            if (opt.label && typeof opt.duration_min === "number") {
-              mapTimes[opt.label] = Math.round(opt.duration_min);
-            }
-          });
-          setBackendOverrides(mapTimes);
+        } else {
+          setBackendLive(false);
         }
       })
       .catch(() => {
@@ -114,27 +108,10 @@ function Index() {
     };
   }, [origin, destination]);
 
-  const rawJourneys = useMemo(
+  const journeys = useMemo(
     () => (origin && destination ? planJourneys(origin, destination, day, minutes) : []),
     [origin, destination, day, minutes],
   );
-
-  const journeys = useMemo(() => {
-    return rawJourneys.map((j, i) => {
-      let overrideTime: number | undefined;
-      if (i === 0 && backendOverrides["fastest"]) overrideTime = backendOverrides["fastest"];
-      else if (i === 1 && backendOverrides["balanced"]) overrideTime = backendOverrides["balanced"];
-      else if (i === 2 && backendOverrides["fewest_transfers"]) overrideTime = backendOverrides["fewest_transfers"];
-      if (overrideTime && overrideTime > 0) {
-        return {
-          ...j,
-          totalMin: overrideTime,
-          arriveMin: j.departMin + overrideTime,
-        };
-      }
-      return j;
-    });
-  }, [rawJourneys, backendOverrides]);
 
   const selected = journeys.find((j) => j.id === selectedId) ?? journeys[0] ?? null;
   const fastestId = journeys.reduce<string | null>(
@@ -303,7 +280,22 @@ function Index() {
                   <span className="text-xs font-mono font-medium uppercase tracking-wider text-muted-foreground">
                     Common Delhi Corridors
                   </span>
-                  <span className="text-[11px] font-mono text-muted-foreground">DTC Fleet Model</span>
+                  {origin && destination ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrigin(null);
+                        setDestination(null);
+                        setActivePreset(null);
+                        setSelectedId(null);
+                      }}
+                      className="text-[11px] font-mono text-blue-600 hover:underline cursor-pointer flex items-center gap-1 font-semibold"
+                    >
+                      <X className="size-3" /> Clear · Show All Lines
+                    </button>
+                  ) : (
+                    <span className="text-[11px] font-mono text-muted-foreground">All Lines Visible</span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {PRESETS.map((p) => {
@@ -320,7 +312,7 @@ function Index() {
                             : "border-border bg-secondary/60 text-foreground hover:bg-secondary",
                         )}
                       >
-                        {p.title}
+                        {p.label}
                       </button>
                     );
                   })}
@@ -467,6 +459,13 @@ function Index() {
                     showFleet={showFleet}
                     showTweets={showTweets}
                     tweetCount={tweets.length}
+                    hasRoute={Boolean(origin && destination)}
+                    onClearRoute={() => {
+                      setOrigin(null);
+                      setDestination(null);
+                      setActivePreset(null);
+                      setSelectedId(null);
+                    }}
                     onTraffic={setShowTraffic}
                     onFleet={setShowFleet}
                     onTweets={setShowTweets}

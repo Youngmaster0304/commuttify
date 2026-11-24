@@ -21,6 +21,8 @@ interface Props {
   showFleet: boolean;
   showTweets?: boolean;
   tweetCount?: number;
+  hasRoute?: boolean;
+  onClearRoute?: () => void;
   onTraffic: (v: boolean) => void;
   onFleet: (v: boolean) => void;
   onTweets?: (v: boolean) => void;
@@ -34,6 +36,8 @@ export function NetworkStatus({
   showFleet,
   showTweets = true,
   tweetCount = 8,
+  hasRoute = false,
+  onClearRoute,
   onTraffic,
   onFleet,
   onTweets,
@@ -90,6 +94,24 @@ export function NetworkStatus({
           </div>
         )}
       </div>
+
+      {hasRoute && (
+        <div className="mt-2.5 pt-2 border-t border-border flex items-center justify-between">
+          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-blue-600 animate-pulse" />
+            Route Active (Other lines faded)
+          </span>
+          {onClearRoute && (
+            <button
+              type="button"
+              onClick={onClearRoute}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline cursor-pointer"
+            >
+              Show all lines
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

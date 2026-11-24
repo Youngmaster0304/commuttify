@@ -334,8 +334,13 @@
 .bus-marker.fleet-electric {
   background: var(--fleet-electric);
 }
+.bus-marker {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
 .bus-marker.dim {
-  opacity: 0.35;
+  opacity: 0.15;
+  transform: scale(0.8);
+  pointer-events: none;
 }
 
 .pin-marker {
