@@ -1,4 +1,4 @@
-# commuttify — Real-time Bus Traffic Model & Journey Planner (Delhi)
+**# commuttify — Real-time Bus Traffic Model & Journey Planner (Delhi)
 
 Delhi Transport Stack Hackathon 2026**:
 a traffic model built from real-time + historical Delhi bus GPS data, and a
