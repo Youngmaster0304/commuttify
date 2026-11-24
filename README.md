@@ -297,7 +297,7 @@ bus topics (both in the system prompt and a pre-LLM keyword gate).
 |---|---|
 | Real-time bus traffic model | `live_feed_worker.py` + `historical_segment_speeds` (live → historical → schedule) |
 | Google-Maps-like journey API | `GET /journeys` — own Dijkstra, no Google in serving path |
-| ETA accuracy | per-edge speeds from 11-day GPS + 10 s live feed; validated by `validate_model.py` |
+| ETA accuracy | per-edge speeds from 30-day GPS + 10 s live feed; validated by `validate_model.py` |
 | Recommendation / search | `/api/search/autocomplete` fuzzy top-10 |
 | Assistant | `/api/chat` scoped Delhi-bus chatbot with LLM chain |
 | Data honesty | ingests the official portal GTFS + provided GPS day files |
