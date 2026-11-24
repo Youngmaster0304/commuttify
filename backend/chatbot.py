@@ -22,6 +22,41 @@ from .live_feed_worker import LiveStore
 GREETINGS = ("hi", "hello", "hey", "namaste", "good morning", "good evening")
 HELP_KEYS = ("help", "what can you do", "features", "commands")
 
+# Hindi/Hinglish -> English normalization (longest phrases first).
+# Applied to a COPY used for intent + place extraction; the user's original
+# text is what the LLM (if configured) receives.
+HINGLISH_PHRASES: tuple[tuple[str, str], ...] = (
+    ("kaise pahunche", "how do i reach"), ("kaise pahunchu", "how do i reach"),
+    ("kaise jau", "how do i go"), ("kaise jaun", "how do i go"),
+    ("kaise jaaye", "how do i go"), ("kaise jana", "how do i go"),
+    ("jaana hai", "want to go"), ("jana hai", "want to go"),
+    ("kitna time", "how long"), ("kitne time", "how long"),
+    ("kitna waqt", "how long"), ("kitna samay", "how long"),
+    ("kab aayegi", "when will it come"), ("kab aata hai", "when does it come"),
+    ("kab chalegi", "when will it run"), ("kab tak", "when"),
+    ("ke baare me", "tell me about"), ("ke baare mein", "tell me about"),
+    ("ke pass", "near"), ("rukti hai", "stops at"), ("rukta hai", "stops at"),
+    ("kitna", "how much"), ("kitne", "how many"),
+    ("kaise", "how"), ("konsi", "which"), ("kaun si", "which"),
+    ("kaun sa", "which"), ("kis", "which"),
+    ("kidhar", "where"), ("kahan", "where"), ("kaha", "where"),
+    ("batao", "tell me"), ("batado", "tell me"), ("bata dena", "tell me"),
+    ("chahiye", "want"), ("mujhe", " "), ("mera", " "), ("bhai", " "),
+    ("abhi", "now"), ("filhaal", "right now"),
+    ("pahunch", "reach"), ("jaa", "go"),
+)
+_HINGLISH_RE = tuple(
+    (re.compile(rf"\b{re.escape(pat)}\b"), repl)
+    for pat, repl in HINGLISH_PHRASES
+)
+
+
+def _normalize_hinglish(text: str) -> str:
+    low = text.lower()
+    for pat, repl in _HINGLISH_RE:
+        low = pat.sub(repl, low)
+    return re.sub(r"\s+", " ", low).strip()
+
 SYSTEM_PROMPT = (
     "You are Commuttify AI, a Delhi DTC bus transit assistant built for the "
     "commuttify project (Delhi Transport Stack Hackathon 2026).\n"
@@ -40,7 +75,9 @@ SYSTEM_PROMPT = (
     "3. Prioritize facts from the local context below when it matches the query.\n"
     "4. Keep answers friendly, concise, informative; emojis are welcome.\n"
     "5. If the local context is empty, say you could not find that in the data "
-    "instead of inventing routes."
+    "instead of inventing routes.\n"
+    "6. Users may write in English, Hindi or Hinglish — ALWAYS reply in the "
+    "same language the user wrote in (Hinglish input gets a Hinglish reply)."
 )
 
 
@@ -55,12 +92,14 @@ def detect_intent(message: str) -> str:
     if any(k in lower for k in HELP_KEYS):
         return "help"
     if any(w in lower for w in ("live", "running now", "right now",
-                                "traffic", "delay")):
+                                "traffic", "delay", "when will it come",
+                                "when does it come")):
         return "live"
     if any(w in lower for w in ("route", "from ", " to ", "go to",
                                 "how to reach", "how do i get", "direction",
                                 "journey", "travel", "time", "how long",
-                                "duration")):
+                                "duration", "want to go", "how do i go",
+                                "how do i reach", "jaana", "reach ")):
         return "route"
     if any(w in lower for w in ("stop", "station", "tell me about",
                                 "info about", "where is")):
@@ -99,6 +138,13 @@ def _two_places(message: str) -> tuple[dict, dict] | None:
         a, b = _resolve(m.group(1)), _resolve(m.group(2))
         if a and b and a["stop_id"] != b["stop_id"]:
             return a, b
+    # Hindi/Hinglish: "kashmiri gate se aiims jaana hai"
+    m = re.search(r"(.+?)\s+se\s+(.+?)(?:\s+(?:want|going|how|tell|now|please)\b|[?.!]|$)",
+                  message, flags=re.IGNORECASE)
+    if m:
+        a, b = _resolve(m.group(1)), _resolve(m.group(2))
+        if a and b and a["stop_id"] != b["stop_id"]:
+            return a, b
     found = _extract_places(message)
     if len(found) >= 2:
         return found[0], found[1]
@@ -115,6 +161,10 @@ BUS_KEYWORDS = (
     "transport", "commute", "how do i get", "how to reach", "direction",
     "get to", "reach", "time", "how long", "minutes", "hours", "km",
     "near me", "first bus", "last bus", "frequency", "timing",
+    # Hindi / Hinglish travel vocabulary
+    "jaana", "jana", "jau", "jaun", "kaise", "kitna", "kitne", "konsi",
+    "kaun", "kab", "kidhar", "kahan", "pahunch", "chahiye", "want to go",
+    "how do i go", "how do i reach", "tell me about", "stops at",
 )
 
 OUT_OF_SCOPE = (
@@ -175,8 +225,9 @@ def _stop_context(message: str) -> str | None:
     place = found[0] if found else None
     if place is None:
         cleaned = re.sub(
-            r"(tell me about|info about|where is|stop|station)", " ",
-            message, flags=re.IGNORECASE).strip(" ?.,!")
+            r"(tell me about|tell me|info about|where is|stop|station)", " ",
+            message, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ?.,!")
         place = _resolve(cleaned) if cleaned else None
     if place is None:
         return None
@@ -211,6 +262,10 @@ def _live_context() -> str:
 def _chat_once(url: str, model: str, key: str,
                context: str, message: str) -> str | None:
     if not url:
+        return None
+    # a public endpoint without a key can only 401 — don't waste 30 s on it
+    # (keyless local routers like FreeLLMAPI on localhost are still allowed)
+    if not key and "localhost" not in url and "127.0.0.1" not in url:
         return None
     # accept base URLs like .../v1 or .../v1/chat/completions
     if not url.rstrip("/").endswith("chat/completions"):
@@ -264,7 +319,8 @@ def _fallback(intent: str, message: str, context: str | None) -> str:
         return context
     if intent in ("route", "time"):
         return ("I couldn't identify both places. Try: "
-                "\"Route from Rohini Sec 22 Terminal to Azadpur Terminal\"")
+                "\"Route from Rohini Sec 22 Terminal to Azadpur Terminal\" — "
+                "or Hinglish: \"Rohini Sec 22 se Azadpur jaana hai\"")
     if intent == "stop_info" and context:
         return context
     if intent == "stop_info":
@@ -282,18 +338,20 @@ def _fallback(intent: str, message: str, context: str | None) -> str:
 # --------------------------------------------------------------------------- #
 
 def process_message(message: str) -> str:
-    intent = detect_intent(message)
+    # normalize Hindi/Hinglish once; the original text goes to the LLM
+    norm = _normalize_hinglish(message)
+    intent = detect_intent(norm)
 
     # bus-only scope: refuse clearly off-topic questions before any LLM call
-    if intent not in ("greeting", "help") and not _is_bus_related(message):
+    if intent not in ("greeting", "help") and not _is_bus_related(norm):
         return OUT_OF_SCOPE
 
     context: str | None = None
     try:
         if intent in ("route", "time"):
-            context = _route_context(message)
+            context = _route_context(norm)
         elif intent == "stop_info":
-            context = _stop_context(message)
+            context = _stop_context(norm)
         elif intent == "live":
             context = _live_context()
     except Exception:  # noqa: BLE001 — never break the chat on engine errors
@@ -302,4 +360,4 @@ def process_message(message: str) -> str:
     reply = _llm_reply(context or "", message)
     if reply:
         return reply
-    return _fallback(intent, message, context)
+    return _fallback(intent, norm, context)
