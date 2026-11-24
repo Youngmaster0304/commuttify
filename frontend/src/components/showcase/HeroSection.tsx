@@ -13,11 +13,6 @@ export function HeroSection({ onPlanJourney, onExploreFeatures }: HeroSectionPro
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
           {/* Left Column: Headline and CTAs */}
           <div className="lg:col-span-7 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-100 border border-neutral-300 text-xs font-mono font-medium text-neutral-700">
-              <span className="size-2 rounded-full bg-amber-500 animate-ping" />
-              <span>VER 2.0 · DELHI NCR BUS COVERAGE</span>
-            </div>
-
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-display font-black tracking-tight text-neutral-950 leading-[1.08]">
               Delhi Buses, <br />
               <span className="font-serif italic font-normal text-neutral-800">solved for</span>{" "}

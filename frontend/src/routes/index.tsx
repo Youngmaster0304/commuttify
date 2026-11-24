@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { PlaceInput } from "@/components/transit/PlaceInput";
 import { TimeControls } from "@/components/transit/TimeControls";
 import { JourneyCard } from "@/components/transit/JourneyCard";
-import { ModelDrawer } from "@/components/transit/ModelDrawer";
 import { Legend, NetworkStatus } from "@/components/transit/MapOverlay";
 import { LiveTweetsFeed } from "@/components/transit/LiveTweetsFeed";
 import { ChatbotDrawer } from "@/components/transit/ChatbotDrawer";
@@ -491,9 +490,6 @@ function Index() {
               <div className="flex flex-col items-start gap-2 pr-12 sm:flex-row sm:items-end sm:justify-between">
                 <div className="pointer-events-auto hidden sm:block">
                   <Legend showFleet={showFleet} />
-                </div>
-                <div className="pointer-events-auto w-full sm:w-auto">
-                  <ModelDrawer day={day} minutes={minutes} />
                 </div>
               </div>
             </div>
