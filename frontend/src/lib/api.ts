@@ -286,3 +286,16 @@ export async function sendChatMessage(message: string): Promise<string> {
   }
   return "I'm your Commuttify Delhi Bus Assistant. You can ask me about bus route numbers, schedules, transfer points, or current road congestion across Delhi's corridors!";
 }
+
+export async function fetchBackendJourneys(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+): Promise<any> {
+  const url = `${API_BASE}/journeys?from_lat=${fromLat}&from_lon=${fromLon}&to_lat=${toLat}&to_lon=${toLon}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+

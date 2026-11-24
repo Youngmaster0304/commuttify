@@ -1,4 +1,4 @@
-import { Activity, Bus, Layers } from "lucide-react";
+import { Activity, AlertCircle, Bus, Layers, MessageSquare } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -19,20 +19,47 @@ interface Props {
   minutes: number;
   showTraffic: boolean;
   showFleet: boolean;
+  showTweets?: boolean;
+  tweetCount?: number;
   onTraffic: (v: boolean) => void;
   onFleet: (v: boolean) => void;
+  onTweets?: (v: boolean) => void;
+  onToggleTweetsPanel?: () => void;
 }
 
-export function NetworkStatus({ day, minutes, showTraffic, showFleet, onTraffic, onFleet }: Props) {
+export function NetworkStatus({
+  day,
+  minutes,
+  showTraffic,
+  showFleet,
+  showTweets = true,
+  tweetCount = 8,
+  onTraffic,
+  onFleet,
+  onTweets,
+  onToggleTweetsPanel,
+}: Props) {
   const stats = cityStats(day, minutes);
   const avg = useTween(stats.avgSpeed);
   const label = SPEED_BANDS.find((b) => b.band === stats.band)?.label;
 
   return (
-    <div className="w-[230px] rounded-xl border border-border bg-card p-3 shadow-float">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        <span className="live-dot" /> Modeled network
+    <div className="w-[245px] rounded-xl border border-border bg-card p-3 shadow-float">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="live-dot" /> Modeled network
+        </div>
+        {onToggleTweetsPanel && (
+          <button
+            onClick={onToggleTweetsPanel}
+            type="button"
+            className="flex items-center gap-1 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold px-1.5 py-0.5 text-[10px] hover:bg-rose-500/20 transition-colors"
+          >
+            <AlertCircle className="size-3" /> {tweetCount} Alerts
+          </button>
+        )}
       </div>
+
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="tabular text-2xl font-semibold">{Math.round(avg)}</span>
         <span className="text-xs text-muted-foreground">km/h avg</span>
@@ -43,17 +70,25 @@ export function NetworkStatus({ day, minutes, showTraffic, showFleet, onTraffic,
       </div>
       <div className="mt-3 space-y-2 border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <Label htmlFor="traffic-toggle" className="flex items-center gap-1.5 text-xs font-medium">
-            <Layers className="size-3.5" /> Traffic speeds
+          <Label htmlFor="traffic-toggle" className="flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+            <Layers className="size-3.5 text-amber-500" /> Traffic speeds
           </Label>
           <Switch id="traffic-toggle" checked={showTraffic} onCheckedChange={onTraffic} />
         </div>
         <div className="flex items-center justify-between">
-          <Label htmlFor="fleet-toggle" className="flex items-center gap-1.5 text-xs font-medium">
-            <Bus className="size-3.5" /> Live bus fleet
+          <Label htmlFor="fleet-toggle" className="flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+            <Bus className="size-3.5 text-sky-500" /> Live bus fleet
           </Label>
           <Switch id="fleet-toggle" checked={showFleet} onCheckedChange={onFleet} />
         </div>
+        {onTweets && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="tweets-toggle" className="flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+              <AlertCircle className="size-3.5 text-rose-500" /> Live tweets & alerts
+            </Label>
+            <Switch id="tweets-toggle" checked={showTweets} onCheckedChange={onTweets} />
+          </div>
+        )}
       </div>
     </div>
   );

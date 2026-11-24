@@ -1,6 +1,18 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import { Suspense, lazy, useMemo, useState } from "react";
-import { ArrowUpDown, BusFront, Crosshair, Route as RouteIcon, X } from "lucide-react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowUpDown,
+  Bus,
+  BusFront,
+  Crosshair,
+  MessageSquare,
+  Radio,
+  Route as RouteIcon,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,24 +21,29 @@ import { TimeControls } from "@/components/transit/TimeControls";
 import { JourneyCard } from "@/components/transit/JourneyCard";
 import { ModelDrawer } from "@/components/transit/ModelDrawer";
 import { Legend, NetworkStatus } from "@/components/transit/MapOverlay";
+import { LiveTweetsFeed } from "@/components/transit/LiveTweetsFeed";
+import { ChatbotDrawer } from "@/components/transit/ChatbotDrawer";
+import { ShowcaseLanding } from "@/components/showcase/ShowcaseLanding";
 import type { PickTarget } from "@/components/transit/map-types";
 import { PRESETS, STOP_BY_ID, type Day, type StopId } from "@/lib/transit/data";
 import { placeFromStop, planJourneys, type LatLng, type Place } from "@/lib/transit/model";
+import { fetchBackendJourneys, fetchLiveTweets, type TweetData } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const TransitMap = lazy(() => import("@/components/transit/TransitMap"));
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Delhi Bus Traffic Model & Journey Planner" },
+      { title: "Commuttify — Delhi Bus Traffic Model & Journey Planner" },
       {
         name: "description",
-        content: "Plan Delhi bus trips and see how modeled live traffic speeds change travel time versus the timetable.",
+        content: "Real-time Delhi bus traffic model, journey planner, and live geolocated commuter tweets.",
       },
-      { property: "og:title", content: "Delhi Bus Traffic Model & Journey Planner" },
+      { property: "og:title", content: "Commuttify — Delhi Bus Traffic Model & Live Tweets" },
       {
         property: "og:description",
-        content: "Compare live-traffic bus journey times across Delhi with quieter hours and static timetables.",
+        content: "Compare live-traffic bus journey times across Delhi and monitor real-time road incident tweets.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -41,13 +58,15 @@ function MapFallback() {
   return (
     <div className="grid h-full w-full place-items-center bg-muted text-sm text-muted-foreground">
       <span className="flex items-center gap-2">
-        <BusFront className="size-4 animate-pulse" /> Loading Delhi map…
+        <BusFront className="size-4 animate-pulse" /> Loading Delhi bus traffic map…
       </span>
     </div>
   );
 }
 
 function Index() {
+  const [viewMode, setViewMode] = useState<"showcase" | "map">("showcase");
+  const [activeTab, setActiveTab] = useState<"planner" | "tweets">("planner");
   const [origin, setOrigin] = useState<Place | null>(() => placeFromStop(DEFAULT.origin));
   const [destination, setDestination] = useState<Place | null>(() => placeFromStop(DEFAULT.destination));
   const [day, setDay] = useState<Day>(DEFAULT.day);
@@ -56,12 +75,67 @@ function Index() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showTraffic, setShowTraffic] = useState(true);
   const [showFleet, setShowFleet] = useState(true);
+  const [showTweets, setShowTweets] = useState(true);
+  const [tweets, setTweets] = useState<TweetData[]>([]);
+  const [focusedTweet, setFocusedTweet] = useState<TweetData | null>(null);
   const [pickMode, setPickMode] = useState<PickTarget | null>(null);
+  const [backendLive, setBackendLive] = useState(false);
+  const [backendOverrides, setBackendOverrides] = useState<{ [label: string]: number }>({});
 
-  const journeys = useMemo(
+  useEffect(() => {
+    fetchLiveTweets()
+      .then((data) => setTweets(data))
+      .catch(() => {});
+  }, []);
+
+  // Fetch real-time journeys from FastAPI PostGIS & Redis routing backend
+  useEffect(() => {
+    if (!origin || !destination) return;
+    let active = true;
+    fetchBackendJourneys(origin.lat, origin.lng, destination.lat, destination.lng)
+      .then((data) => {
+        if (!active) return;
+        if (data && Array.isArray(data.options) && data.options.length > 0) {
+          setBackendLive(true);
+          const mapTimes: { [k: string]: number } = {};
+          data.options.forEach((opt: any) => {
+            if (opt.label && typeof opt.duration_min === "number") {
+              mapTimes[opt.label] = Math.round(opt.duration_min);
+            }
+          });
+          setBackendOverrides(mapTimes);
+        }
+      })
+      .catch(() => {
+        if (active) setBackendLive(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [origin, destination]);
+
+  const rawJourneys = useMemo(
     () => (origin && destination ? planJourneys(origin, destination, day, minutes) : []),
     [origin, destination, day, minutes],
   );
+
+  const journeys = useMemo(() => {
+    return rawJourneys.map((j, i) => {
+      let overrideTime: number | undefined;
+      if (i === 0 && backendOverrides["fastest"]) overrideTime = backendOverrides["fastest"];
+      else if (i === 1 && backendOverrides["balanced"]) overrideTime = backendOverrides["balanced"];
+      else if (i === 2 && backendOverrides["fewest_transfers"]) overrideTime = backendOverrides["fewest_transfers"];
+      if (overrideTime && overrideTime > 0) {
+        return {
+          ...j,
+          totalMin: overrideTime,
+          arriveMin: j.departMin + overrideTime,
+        };
+      }
+      return j;
+    });
+  }, [rawJourneys, backendOverrides]);
+
   const selected = journeys.find((j) => j.id === selectedId) ?? journeys[0] ?? null;
   const fastestId = journeys.reduce<string | null>(
     (best, j) => (best === null || j.totalMin < journeys.find((x) => x.id === best)!.totalMin ? j.id : best),
@@ -77,6 +151,7 @@ function Index() {
     setActivePreset(p.id);
     setSelectedId(null);
     setPickMode(null);
+    setActiveTab("planner");
   };
 
   const clearPreset = () => setActivePreset(null);
@@ -94,6 +169,7 @@ function Index() {
     toast.success(`${pickMode === "origin" ? "Start" : "Destination"} pinned on the map`);
     setPickMode(null);
   };
+
   const onPickStop = (id: StopId) => {
     if (!pickMode) return;
     setPlace(pickMode, placeFromStop(id));
@@ -102,119 +178,260 @@ function Index() {
   };
 
   const swap = () => {
+    const prevO = origin;
     setOrigin(destination);
-    setDestination(origin);
+    setDestination(prevO);
     setSelectedId(null);
     clearPreset();
   };
 
+  const handleSelectTweet = (tweet: TweetData) => {
+    setFocusedTweet(tweet);
+    toast.info(`Focusing alert: ${tweet.location_name}`);
+  };
+
+  const handleLaunchPlanner = (presetOrig?: string, presetDest?: string) => {
+    if (presetOrig && presetDest) {
+      const match = PRESETS.find((p) => p.id.includes(presetOrig) || p.origin.includes(presetOrig));
+      if (match) applyPreset(match.id);
+    }
+    setViewMode("map");
+  };
+
+  // If in Showcase Landing view mode, render ShowcaseLanding
+  if (viewMode === "showcase") {
+    return (
+      <>
+        <ShowcaseLanding
+          onLaunchPlanner={handleLaunchPlanner}
+          onOpenAlerts={() => {
+            setActiveTab("tweets");
+            setViewMode("map");
+          }}
+          activeAlertsCount={tweets.length}
+        />
+        <ChatbotDrawer />
+      </>
+    );
+  }
+
+  // Interactive Map & Journey Planner View Mode
   return (
-    <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
-      {/* Top bar */}
-      <header className="bg-header text-header-foreground">
-        <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:gap-6 lg:px-5">
-          <div className="flex items-center gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground">
-              <BusFront className="size-5" />
-            </span>
-            <div className="leading-tight">
-              <h1 className="text-lg font-extrabold sm:text-xl">Delhi Bus Fleet Traffic Model</h1>
-              <p className="text-xs text-header-muted">& Journey Planner · live speeds vs. static timetables</p>
-            </div>
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
+      {/* Top Bar with Showcase Return */}
+      <header className="h-14 bg-[#121214] text-white px-4 sm:px-6 flex items-center justify-between border-b border-neutral-800 z-50 shrink-0">
+        <button
+          type="button"
+          onClick={() => setViewMode("showcase")}
+          className="flex items-center gap-2 text-xs font-medium text-neutral-300 hover:text-white transition-colors bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded-full cursor-pointer"
+        >
+          <ArrowLeft className="size-3.5" />
+          <span>← Back to Showcase</span>
+        </button>
+
+        <div className="flex items-center gap-2">
+          <div className="size-7 rounded-lg bg-black text-amber-400 flex items-center justify-center font-bold text-xs border border-neutral-700">
+            <Bus className="size-4" />
           </div>
-          <nav aria-label="Demo scenarios" className="scrollbar-thin -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:ml-auto lg:px-0 lg:pb-0">
-            {PRESETS.map((p) => (
-              <Button
-                key={p.id}
-                size="sm"
-                variant={activePreset === p.id ? "chipActive" : "chip"}
-                onClick={() => applyPreset(p.id)}
-                className="h-auto shrink-0 flex-col items-start gap-0 px-3 py-1.5 text-left"
-              >
-                <span className="text-xs font-semibold">{p.label}</span>
-                <span className="tabular text-[10px] opacity-75">{p.tag}</span>
-              </Button>
-            ))}
-          </nav>
+          <span className="font-display font-black text-base tracking-tight text-white">Commuttify</span>
+          <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-neutral-800 text-[10px] font-mono text-neutral-400">
+            DELHI BUSWAY
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setActiveTab(activeTab === "planner" ? "tweets" : "planner")}
+            className="h-8 text-xs rounded-full border-neutral-700 text-neutral-200 hover:text-white hover:bg-neutral-800 cursor-pointer"
+          >
+            {activeTab === "planner" ? `View Tweets (${tweets.length})` : "Journey Planner"}
+          </Button>
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Planner panel */}
-        <aside className="scrollbar-thin w-full border-border lg:w-[440px] lg:shrink-0 lg:overflow-y-auto lg:border-r">
-          <section className="space-y-3 p-4">
-            <div className="relative space-y-2">
-              <PlaceInput
-                label="From"
-                marker="A"
-                value={origin}
-                onChange={(p) => setPlace("origin", p)}
-                onPickOnMap={() => setPickMode("origin")}
-                picking={pickMode === "origin"}
-              />
-              <PlaceInput
-                label="To"
-                marker="B"
-                value={destination}
-                onChange={(p) => setPlace("destination", p)}
-                onPickOnMap={() => setPickMode("destination")}
-                picking={pickMode === "destination"}
-              />
-              <Button
-                variant="mapControl"
-                size="icon"
-                onClick={swap}
-                aria-label="Swap start and destination"
-                className="absolute top-1/2 right-3 size-8 -translate-y-1/2 rounded-full"
+      {/* Main Workspace: Left Controls / Tweets Feed & Right Map */}
+      <main className="relative flex flex-1 flex-col overflow-hidden lg:flex-row">
+        {/* Left Sidebar Pane */}
+        <aside
+          className="scrollbar-thin z-10 flex w-full flex-col border-b border-border bg-card shadow-float lg:h-full lg:w-[440px] lg:shrink-0 lg:border-r lg:border-b-0 overflow-y-auto"
+          aria-label="Journey planning and live feeds"
+        >
+          {/* Segmented Mode Switcher */}
+          <div className="p-3 border-b border-border bg-secondary/30">
+            <div className="grid grid-cols-2 p-1 bg-secondary rounded-xl text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setActiveTab("planner")}
+                className={cn(
+                  "py-2 px-3 rounded-lg transition-all font-semibold flex items-center justify-center gap-2 cursor-pointer",
+                  activeTab === "planner"
+                    ? "bg-card text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
               >
-                <ArrowUpDown />
-              </Button>
+                <RouteIcon className="size-4 text-primary" />
+                <span>Journey Planner</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("tweets")}
+                className={cn(
+                  "py-2 px-3 rounded-lg transition-all font-semibold flex items-center justify-center gap-2 cursor-pointer relative",
+                  activeTab === "tweets"
+                    ? "bg-card text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Radio className="size-4 text-rose-500 animate-pulse" />
+                <span>Live Tweets & Alerts</span>
+                {tweets.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 text-[10px] font-mono font-bold">
+                    {tweets.length}
+                  </span>
+                )}
+              </button>
             </div>
+          </div>
 
-            <TimeControls
-              day={day}
-              minutes={minutes}
-              onDay={(d) => {
-                setDay(d);
-                clearPreset();
-              }}
-              onMinutes={(m) => {
-                setMinutes(m);
-                clearPreset();
-              }}
-            />
-          </section>
+          {/* TAB 1: Journey Planner Content */}
+          {activeTab === "planner" && (
+            <div className="flex-1 flex flex-col">
+              <section className="space-y-4 p-4 border-b border-border/60" aria-label="Route Presets">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-medium uppercase tracking-wider text-muted-foreground">
+                    Common Delhi Corridors
+                  </span>
+                  <span className="text-[11px] font-mono text-muted-foreground">DTC Fleet Model</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESETS.map((p) => {
+                    const active = activePreset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyPreset(p.id)}
+                        className={cn(
+                          "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          active
+                            ? "border-primary bg-primary text-primary-foreground font-semibold"
+                            : "border-border bg-secondary/60 text-foreground hover:bg-secondary",
+                        )}
+                      >
+                        {p.title}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
 
-          <section className="space-y-3 px-4 pb-6" aria-live="polite">
-            <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-1.5 text-base font-bold">
-                <RouteIcon className="size-4 text-primary" /> Journey options
-              </h2>
-              <span className="text-xs text-muted-foreground">{journeys.length} found</span>
-            </div>
-            {journeys.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                {origin && destination
-                  ? "No bus connection found nearby. Try a stop closer to a main road."
-                  : "Choose a start and destination to see options."}
-              </div>
-            ) : (
-              journeys.map((j, i) => (
-                <JourneyCard
-                  key={j.id}
-                  journey={j}
-                  index={i}
-                  selected={selected?.id === j.id}
-                  fastest={j.id === fastestId && journeys.length > 1}
-                  onSelect={() => setSelectedId(j.id)}
+              <section className="relative space-y-3 p-4" aria-label="Trip planning inputs">
+                <div className="relative space-y-2 pr-10">
+                  <PlaceInput
+                    label="Origin / Start Stop"
+                    target="origin"
+                    value={origin}
+                    onSelect={(p) => setPlace("origin", p)}
+                    onClear={() => {
+                      setOrigin(null);
+                      clearPreset();
+                    }}
+                    onPickOnMap={() => setPickMode(pickMode === "origin" ? null : "origin")}
+                    picking={pickMode === "origin"}
+                  />
+
+                  <PlaceInput
+                    label="Destination / End Stop"
+                    target="destination"
+                    value={destination}
+                    onSelect={(p) => setPlace("destination", p)}
+                    onClear={() => {
+                      setDestination(null);
+                      clearPreset();
+                    }}
+                    onPickOnMap={() => setPickMode(pickMode === "destination" ? null : "destination")}
+                    picking={pickMode === "destination"}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="mapControl"
+                    size="icon"
+                    onClick={swap}
+                    aria-label="Swap start and destination"
+                    className="absolute top-1/2 right-3 size-8 -translate-y-1/2 rounded-full shadow-xs cursor-pointer"
+                  >
+                    <ArrowUpDown className="size-4" />
+                  </Button>
+                </div>
+
+                <TimeControls
+                  day={day}
+                  minutes={minutes}
+                  onDay={(d) => {
+                    setDay(d);
+                    clearPreset();
+                  }}
+                  onMinutes={(m) => {
+                    setMinutes(m);
+                    clearPreset();
+                  }}
                 />
-              ))
-            )}
-          </section>
+              </section>
+
+              <section className="space-y-3 px-4 pb-6 flex-1" aria-live="polite">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <h2 className="flex items-center gap-1.5 text-base font-bold">
+                      <RouteIcon className="size-4 text-primary" /> Journey options
+                    </h2>
+                    {backendLive && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-mono font-medium border border-emerald-500/20">
+                        <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Backend Live ⚡
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{journeys.length} found</span>
+                </div>
+                {journeys.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                    {origin && destination
+                      ? "No bus connection found nearby. Try a stop closer to a main road."
+                      : "Choose a start and destination to see options."}
+                  </div>
+                ) : (
+                  journeys.map((j, i) => (
+                    <JourneyCard
+                      key={j.id}
+                      journey={j}
+                      index={i}
+                      selected={selected?.id === j.id}
+                      fastest={j.id === fastestId && journeys.length > 1}
+                      onSelect={() => setSelectedId(j.id)}
+                    />
+                  ))
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* TAB 2: Live Tweets Feed */}
+          {activeTab === "tweets" && (
+            <div className="flex-1 flex flex-col h-full">
+              <LiveTweetsFeed
+                selectedTweetId={focusedTweet?.id ?? null}
+                onSelectTweet={handleSelectTweet}
+                className="flex-1"
+              />
+            </div>
+          )}
         </aside>
 
-        {/* Map */}
-        <section className="relative h-[75vh] min-h-[480px] flex-1 lg:h-auto" aria-label="Delhi traffic map">
+        {/* Right Pane: Interactive Map */}
+        <section className="relative h-[75vh] min-h-[480px] flex-1 lg:h-auto" aria-label="Delhi bus traffic map">
           <ClientOnly fallback={<MapFallback />}>
             <Suspense fallback={<MapFallback />}>
               <TransitMap
@@ -226,6 +443,10 @@ function Index() {
                 selectedId={selected?.id ?? null}
                 showTraffic={showTraffic}
                 showFleet={showFleet}
+                showTweets={showTweets}
+                tweets={tweets}
+                focusedTweet={focusedTweet}
+                onSelectTweet={handleSelectTweet}
                 pickMode={pickMode}
                 onPickPoint={onPickPoint}
                 onPickStop={onPickStop}
@@ -234,6 +455,7 @@ function Index() {
             </Suspense>
           </ClientOnly>
 
+          {/* Map Overlay Controls */}
           <div className="pointer-events-none absolute inset-0 z-[500] p-3">
             <div className="flex h-full flex-col justify-between gap-3">
               <div className="flex items-start justify-between gap-3">
@@ -243,20 +465,30 @@ function Index() {
                     minutes={minutes}
                     showTraffic={showTraffic}
                     showFleet={showFleet}
+                    showTweets={showTweets}
+                    tweetCount={tweets.length}
                     onTraffic={setShowTraffic}
                     onFleet={setShowFleet}
+                    onTweets={setShowTweets}
+                    onToggleTweetsPanel={() => setActiveTab("tweets")}
                   />
                 </div>
                 {pickMode && (
                   <div className="pointer-events-auto fade-swap flex items-center gap-2 rounded-full bg-header px-3 py-2 text-xs text-header-foreground shadow-float">
                     <Crosshair className="size-4 text-accent" />
                     Click the map or a stop to set your {pickMode === "origin" ? "start" : "destination"}
-                    <button type="button" onClick={() => setPickMode(null)} aria-label="Cancel picking" className="rounded-full p-0.5 hover:bg-header-chip">
+                    <button
+                      type="button"
+                      onClick={() => setPickMode(null)}
+                      aria-label="Cancel picking"
+                      className="rounded-full p-0.5 hover:bg-header-chip"
+                    >
                       <X className="size-3.5" />
                     </button>
                   </div>
                 )}
               </div>
+
               <div className="flex flex-col items-start gap-2 pr-12 sm:flex-row sm:items-end sm:justify-between">
                 <div className="pointer-events-auto hidden sm:block">
                   <Legend showFleet={showFleet} />
@@ -269,6 +501,9 @@ function Index() {
           </div>
         </section>
       </main>
+
+      {/* Floating AI Bus Assistant */}
+      <ChatbotDrawer />
     </div>
   );
 }

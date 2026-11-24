@@ -87,6 +87,7 @@
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-serif: "Newsreader", "Playfair Display", Georgia, serif;
   --shadow-float: var(--shadow-float-value);
   --shadow-card: var(--shadow-card-value);
 }
@@ -262,7 +263,8 @@
 }
 
 .transit-map .map-tiles {
-  filter: grayscale(0.85) contrast(0.92) brightness(1.04);
+  /* Vivid colorful map rendering for parks, water, and roads */
+  filter: saturate(1.18) contrast(1.02);
 }
 
 .transit-map.picking,
@@ -375,3 +377,105 @@
   font-size: 10px;
   font-weight: 700;
 }
+
+/* Live Tweet & Traffic Incident Map Styling */
+.tweet-marker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.tweet-marker:hover {
+  transform: translate(-50%, -50%) scale(1.2);
+  z-index: 999;
+}
+.tweet-marker.cat-breakdown {
+  background: #f43f5e;
+  color: white;
+}
+.tweet-marker.cat-congestion {
+  background: #f59e0b;
+  color: white;
+}
+.tweet-marker.cat-diversion {
+  background: #3b82f6;
+  color: white;
+}
+.tweet-marker.cat-waterlogging {
+  background: #06b6d4;
+  color: white;
+}
+.tweet-marker.cat-accident {
+  background: #ef4444;
+  color: white;
+}
+
+.tweet-radar {
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  opacity: 0.8;
+  animation: tweetRadar 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes tweetRadar {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  overflow: hidden;
+}
+.leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4;
+}
+
+/* Commuttify Marquee Ticker */
+@keyframes commuttifyMarquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: commuttifyMarquee 32s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Commuttify Brutalist Drop Shadows */
+.shadow-hard {
+  box-shadow: 4px 4px 0px #000;
+}
+
+.shadow-hard-lg {
+  box-shadow: 7px 7px 0px #000;
+}
+
+.shadow-hard-xl {
+  box-shadow: 10px 10px 0px #000;
+}
+

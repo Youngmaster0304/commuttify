@@ -67,6 +67,8 @@ export default function TransitMap(props: TransitMapProps) {
   const journeyRef = useRef<L.LayerGroup | null>(null);
   const pinsRef = useRef<L.LayerGroup | null>(null);
   const fleetRef = useRef<L.LayerGroup | null>(null);
+  const tweetsRef = useRef<L.LayerGroup | null>(null);
+  const tweetMarkersRef = useRef<Map<string, L.Marker>>(new Map());
   const busesRef = useRef<SimBus[]>([]);
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -89,14 +91,29 @@ export default function TransitMap(props: TransitMapProps) {
     mapRef.current = map;
 
     let loaded = 0;
-    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-      maxZoom: 19,
-      className: "map-tiles",
-    });
+    const CARTODB_KEY = "cb1_5fbe_1_038b99ca6373a709cdd36c1a";
+    const tiles = L.tileLayer(
+      `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${CARTODB_KEY}`,
+      {
+        attribution: "© OpenStreetMap contributors, © CARTO",
+        subdomains: "abcd",
+        maxZoom: 19,
+        className: "map-tiles",
+      },
+    );
     tiles.on("tileload", () => {
       loaded++;
       setTilesFailed(false);
+    });
+    tiles.on("tileerror", () => {
+      // Automatic fallback to OpenStreetMap if needed
+      if (loaded === 0) {
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap contributors",
+          maxZoom: 19,
+          className: "map-tiles",
+        }).addTo(map);
+      }
     });
     tiles.addTo(map);
     const fallbackTimer = window.setTimeout(() => {
@@ -106,6 +123,7 @@ export default function TransitMap(props: TransitMapProps) {
     map.createPane("journey").style.zIndex = "450";
     map.createPane("stops").style.zIndex = "460";
     map.createPane("fleet").style.zIndex = "620";
+    map.createPane("tweets").style.zIndex = "630";
     map.createPane("pins").style.zIndex = "640";
 
     // Traffic segments
@@ -150,6 +168,7 @@ export default function TransitMap(props: TransitMapProps) {
     journeyRef.current = L.layerGroup().addTo(map);
     pinsRef.current = L.layerGroup().addTo(map);
     fleetRef.current = L.layerGroup();
+    tweetsRef.current = L.layerGroup().addTo(map);
 
     map.on("click", (e: L.LeafletMouseEvent) => {
       if (propsRef.current.pickMode) propsRef.current.onPickPoint({ lat: e.latlng.lat, lng: e.latlng.lng });
@@ -164,6 +183,7 @@ export default function TransitMap(props: TransitMapProps) {
       map.remove();
       mapRef.current = null;
       segLinesRef.current.clear();
+      tweetMarkersRef.current.clear();
       busesRef.current = [];
     };
   }, []);
@@ -354,6 +374,98 @@ export default function TransitMap(props: TransitMapProps) {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [props.showFleet]);
+
+  /* ---------- live tweets & incident markers ---------- */
+  useEffect(() => {
+    const map = mapRef.current;
+    const tweetsGroup = tweetsRef.current;
+    if (!map || !tweetsGroup) return;
+
+    tweetsGroup.clearLayers();
+    tweetMarkersRef.current.clear();
+
+    if (props.showTweets === false) {
+      if (map.hasLayer(tweetsGroup)) tweetsGroup.remove();
+      return;
+    }
+
+    if (!map.hasLayer(tweetsGroup)) tweetsGroup.addTo(map);
+
+    const tweetsList = props.tweets || [];
+    for (const t of tweetsList) {
+      const getIconSvg = (cat: string) => {
+        switch (cat.toLowerCase()) {
+          case "breakdown":
+            return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg>`;
+          case "waterlogging":
+            return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>`;
+          case "accident":
+            return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+          default:
+            return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`;
+        }
+      };
+
+      const html = `
+        <div class="tweet-marker cat-${t.category.toLowerCase()}">
+          <div class="tweet-radar"></div>
+          ${getIconSvg(t.category)}
+        </div>
+      `;
+
+      const m = L.marker([t.lat, t.lng], {
+        pane: "tweets",
+        icon: L.divIcon({ className: "", html, iconSize: [0, 0] }),
+      });
+
+      const routesPills = (t.affected_routes || [])
+        .map(
+          (r) =>
+            `<span style="display:inline-block;padding:1px 5px;background:#e2e8f0;color:#0f172a;border-radius:4px;font-family:monospace;font-weight:700;font-size:10px;margin-right:3px;">${r}</span>`
+        )
+        .join("");
+
+      const popupHtml = `
+        <div style="font-family:inherit;width:240px;padding:12px;font-size:12px;background:#ffffff;color:#0f172a;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <img src="${t.avatar}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" />
+            <div style="line-height:1.2;">
+              <div style="font-weight:700;font-size:12px;display:flex;align-items:center;gap:3px;">
+                ${t.user}
+                ${t.verified ? '<span style="color:#0284c7;font-size:10px;">✔</span>' : ""}
+              </div>
+              <span style="font-size:10px;color:#64748b;">${t.handle} · ${t.timestamp}</span>
+            </div>
+          </div>
+          <p style="margin:0 0 8px 0;line-height:1.35;font-size:11.5px;color:#334155;">${t.text}</p>
+          <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f1f5f9;padding-top:6px;">
+            <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:#e11d48;">${t.category}</span>
+            <div>${routesPills}</div>
+          </div>
+          <div style="font-size:10px;color:#64748b;margin-top:4px;">📍 ${t.location_name}</div>
+        </div>
+      `;
+
+      m.bindPopup(popupHtml, { maxWidth: 280, closeButton: false });
+      m.on("click", () => {
+        propsRef.current.onSelectTweet?.(t);
+      });
+
+      m.addTo(tweetsGroup);
+      tweetMarkersRef.current.set(t.id, m);
+    }
+  }, [props.showTweets, props.tweets]);
+
+  /* ---------- pan to focused tweet ---------- */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !props.focusedTweet) return;
+    map.flyTo([props.focusedTweet.lat, props.focusedTweet.lng], 14, { duration: 1.0 });
+    const m = tweetMarkersRef.current.get(props.focusedTweet.id);
+    if (m) {
+      window.setTimeout(() => m.openPopup(), 400);
+    }
+  }, [props.focusedTweet]);
 
   return (
     <div className="relative h-full w-full">
