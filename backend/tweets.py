@@ -11,6 +11,8 @@ import uuid
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
+from .live_crawler import fetch_live_traffic_alerts
+
 
 class TweetItem(BaseModel):
     id: str
@@ -28,6 +30,7 @@ class TweetItem(BaseModel):
     affected_routes: List[str] = Field(default_factory=list)
     likes: int = 0
     retweets: int = 0
+    is_live_scraped: bool = False
 
 
 INITIAL_TWEETS: List[Dict[str, Any]] = [
@@ -170,10 +173,37 @@ INITIAL_TWEETS: List[Dict[str, Any]] = [
 ]
 
 _STORE: List[Dict[str, Any]] = list(INITIAL_TWEETS)
+_INITIAL_CRAWL_DONE: bool = False
+
+
+def refresh_live_tweets(max_items: int = 15) -> List[Dict[str, Any]]:
+    """Crawl live Delhi traffic alerts from public real-time RSS feeds and prepend to _STORE."""
+    global _INITIAL_CRAWL_DONE
+    try:
+        scraped = fetch_live_traffic_alerts(max_items=max_items)
+        existing_ids = {t["id"] for t in _STORE}
+        existing_texts = {t["text"][:50].lower() for t in _STORE}
+
+        added = []
+        for item in reversed(scraped):
+            if item["id"] not in existing_ids and item["text"][:50].lower() not in existing_texts:
+                _STORE.insert(0, item)
+                existing_ids.add(item["id"])
+                existing_texts.add(item["text"][:50].lower())
+                added.append(item)
+        _INITIAL_CRAWL_DONE = True
+        print(f"[tweets] Scraped {len(scraped)} live items, inserted {len(added)} new alerts into feed.")
+    except Exception as exc:
+        print(f"[tweets] Error crawling live alerts: {exc}")
+    return list(_STORE)
 
 
 def list_tweets(category: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Return all tweets, optionally filtered by category."""
+    """Return all tweets, optionally filtered by category. Trigger initial crawl if needed."""
+    global _INITIAL_CRAWL_DONE
+    if not _INITIAL_CRAWL_DONE:
+        refresh_live_tweets(max_items=12)
+
     if not category or category.lower() == "all":
         return list(_STORE)
     cat_lower = category.lower()

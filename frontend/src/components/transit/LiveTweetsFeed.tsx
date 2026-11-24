@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   AlertTriangle,
   Flame,
+  Globe,
   Info,
   MapPin,
   MessageCircle,
@@ -19,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchLiveTweets, submitIncidentTweet, type TweetData } from "@/lib/api";
+import { fetchLiveTweets, refreshLiveTweets, submitIncidentTweet, type TweetData } from "@/lib/api";
 import { STOPS } from "@/lib/transit/data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ export function LiveTweetsFeed({ selectedTweetId, onSelectTweet, className }: Pr
   const [reportLocation, setReportLocation] = useState("");
   const [reportRoutes, setReportRoutes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [crawling, setCrawling] = useState(false);
 
   const loadTweets = async () => {
     setLoading(true);
@@ -62,6 +64,24 @@ export function LiveTweetsFeed({ selectedTweetId, onSelectTweet, className }: Pr
       toast.error("Failed to refresh live alerts");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCrawlLiveWeb = async () => {
+    setCrawling(true);
+    try {
+      toast.info("Scraping live Delhi Traffic Police & transit news feeds…");
+      const updated = await refreshLiveTweets();
+      setTweets(
+        activeCategory === "all"
+          ? updated
+          : updated.filter((t) => t.category.toLowerCase() === activeCategory.toLowerCase())
+      );
+      toast.success("Live internet traffic alerts updated!");
+    } catch {
+      toast.error("Could not crawl live internet alerts");
+    } finally {
+      setCrawling(false);
     }
   };
 
@@ -151,6 +171,18 @@ export function LiveTweetsFeed({ selectedTweetId, onSelectTweet, className }: Pr
         </div>
 
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCrawlLiveWeb}
+            disabled={crawling || loading}
+            className="h-7 text-xs gap-1.5 px-2 font-medium border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+            title="Scrape real-time Delhi Traffic alerts from the web"
+          >
+            <Globe className={cn("size-3.5 text-emerald-500", crawling && "animate-spin")} />
+            {crawling ? "Scraping…" : "Crawl Web"}
+          </Button>
+
           <Button
             variant="ghost"
             size="icon"
@@ -333,6 +365,12 @@ export function LiveTweetsFeed({ selectedTweetId, onSelectTweet, className }: Pr
                   <Badge variant="outline" className={cn("text-[10px] py-0 px-1.5 uppercase font-bold", getCategoryBadgeClass(tweet.category))}>
                     {tweet.category}
                   </Badge>
+
+                  {tweet.is_live_scraped && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 flex items-center gap-1">
+                      <Globe className="size-2.5 text-emerald-500" /> Live Web
+                    </Badge>
+                  )}
 
                   {tweet.affected_routes && tweet.affected_routes.length > 0 && (
                     <div className="flex items-center gap-1">

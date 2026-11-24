@@ -134,6 +134,15 @@ def get_tweets(category: str | None = Query(None, description="Optional category
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/api/tweets/refresh")
+def refresh_tweets() -> list[dict]:
+    """Scrape live internet Delhi traffic alerts and refresh incident feed."""
+    try:
+        return tweets.refresh_live_tweets(max_items=15)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 class TweetIn(BaseModel):
     text: str = Field(..., min_length=5, max_length=1000)
     category: str = Field("congestion")

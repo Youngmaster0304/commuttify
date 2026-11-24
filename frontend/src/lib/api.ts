@@ -11,14 +11,15 @@ export interface TweetData {
   verified: boolean;
   timestamp: string;
   text: string;
-  category: "congestion" | "breakdown" | "diversion" | "waterlogging" | "accident";
-  severity: "high" | "medium" | "low";
+  category: "congestion" | "breakdown" | "diversion" | "waterlogging" | "accident" | string;
+  severity: "high" | "medium" | "low" | string;
   location_name: string;
   lat: number;
   lng: number;
   affected_routes: string[];
   likes: number;
   retweets: number;
+  is_live_scraped?: boolean;
 }
 
 export const FALLBACK_TWEETS: TweetData[] = [
@@ -211,6 +212,24 @@ export async function fetchLiveTweets(category?: string): Promise<TweetData[]> {
     return FALLBACK_TWEETS.filter((t) => t.category.toLowerCase() === category.toLowerCase());
   }
   return FALLBACK_TWEETS;
+}
+
+export async function refreshLiveTweets(): Promise<TweetData[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/tweets/refresh`, {
+      method: "POST",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to refresh live scraped tweets, fetching standard feed:", err);
+  }
+  return fetchLiveTweets();
 }
 
 export async function submitIncidentTweet(payload: {
