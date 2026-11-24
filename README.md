@@ -89,7 +89,7 @@ flowchart TD
     S1["GTFS download (portal)"] --> I1["ingest_gtfs.py --rebuild"]
     I1 --> T1["schema 001_schema.sql<br/>stops · routes · trips ·<br/>stop_times · shapes"]
     T1 --> T2["topology 010_topology.sql<br/>shape → route_segments<br/>80,861 edges + nodes"]
-    S2["11 × bus_movements_*.db"] --> H1["process_historical.py<br/>--chunksize 100000<br/>(2 workers/week — RAM bound)"]
+    S2["30 × bus_movements_*.db"] --> H1["process_historical.py<br/>--chunksize 100000<br/>(2 workers/week — RAM bound)"]
     H1 --> H2["historical_segment_speeds<br/>4.7 M dow × hour cells<br/>over 80,861 segments"]
     S3["GTFS-RT API key"] --> W1["live_feed_worker"]
     W1 --> W2["Redis live:seg:*<br/>trust window 15 min<br/>(in-process cache if no Redis)"]
@@ -184,7 +184,7 @@ pip install -r requirements.txt
 #    unzip the .txt files into data\gtfs\
 python -m backend.ingest_gtfs --gtfs-dir data\gtfs --rebuild
 
-# 4. historical model (11 day files; run 2 at a time — memory bound)
+# 4. historical model (30 day files; run 2 at a time — memory bound)
 python -m backend.process_historical --days 2026_10_01 --chunksize 100000
 #    ... repeat per day, or run outputs\run_hist_waves.ps1
 
