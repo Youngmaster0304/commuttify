@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background Squircle -->
+  <rect width="64" height="64" rx="16" fill="#121214"/>
+  <rect x="1" y="1" width="62" height="62" rx="15" stroke="#f59e0b" stroke-width="2" stroke-opacity="0.3"/>
+  
+  <!-- Bus Body -->
+  <rect x="14" y="12" width="36" height="38" rx="7" fill="#2563eb"/>
+  
+  <!-- Windshield / Top Window -->
+  <rect x="18" y="16" width="28" height="13" rx="3" fill="#ffffff" fill-opacity="0.95"/>
+  <rect x="31" y="16" width="2" height="13" fill="#2563eb" fill-opacity="0.4"/>
+  
+  <!-- Destination Board / Route Display -->
+  <rect x="23" y="13" width="18" height="2" rx="1" fill="#f59e0b"/>
+  
+  <!-- Side Windows / Passenger Stripe -->
+  <rect x="18" y="32" width="7" height="6" rx="1.5" fill="#ffffff" fill-opacity="0.9"/>
+  <rect x="28.5" y="32" width="7" height="6" rx="1.5" fill="#ffffff" fill-opacity="0.9"/>
+  <rect x="39" y="32" width="7" height="6" rx="1.5" fill="#ffffff" fill-opacity="0.9"/>
+  
+  <!-- Headlights -->
+  <circle cx="21" cy="43" r="2.5" fill="#fbbf24"/>
+  <circle cx="43" cy="43" r="2.5" fill="#fbbf24"/>
+  
+  <!-- Front Grille -->
+  <line x1="28" y1="43" x2="36" y2="43" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Tires / Wheels -->
+  <rect x="16" y="50" width="7" height="5" rx="2" fill="#000000"/>
+  <rect x="41" y="50" width="7" height="5" rx="2" fill="#000000"/>
+</svg>

@@ -13,3 +13,5 @@ outputs/
 # static GTFS from the portal (re-downloadable; stop_times.txt > GitHub limit)
 data/gtfs/
 data/*.zip
+.vercel/
+.output/
