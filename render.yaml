@@ -1,0 +1,38 @@
+# Render blueprint: API web service (Docker) with inline GTFS-RT worker.
+# Secrets (DATABASE_URL, REDIS_URL, keys) are set in the Render dashboard,
+# not committed here (sync: false = paste in dashboard).
+services:
+  - type: web
+    name: commuttify-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: INLINE_WORKER
+        value: "1"
+      - key: GTFS_RT_POLL_SECONDS
+        value: "10"
+      - key: GTFS_RT_URL
+        value: "https://dts-backend.transportstack.in/api/dataset/otd/get-file?agency=delhi-buses&category=realtime_gtfs&filename=VehiclePositions.pb"
+      - key: GTFS_RT_KEY_HEADER
+        value: "x-api-key"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GTFS_RT_KEY
+        sync: false
+      - key: CHATBOT_LLM_URL
+        sync: false
+      - key: CHATBOT_LLM_MODEL
+        sync: false
+      - key: CHATBOT_LLM_KEY
+        sync: false
+      - key: CHATBOT_FALLBACK_URL
+        sync: false
+      - key: CHATBOT_FALLBACK_MODEL
+        sync: false
+      - key: CHATBOT_FALLBACK_KEY
+        sync: false

@@ -12,13 +12,37 @@ POST /api/chat                  Delhi-bus-only chatbot {message} -> {reply}
 
 from __future__ import annotations
 
+import asyncio
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import chatbot, config, db, recommend, routing, tweets
 
-app = FastAPI(title="commuttify API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Run the GTFS-RT poller inside the API process when INLINE_WORKER=1.
+
+    Used on hosts without a separate worker service (e.g. Render free web
+    service + UptimeRobot ping keeping the dyno awake).
+    """
+    task: asyncio.Task | None = None
+    if os.getenv("INLINE_WORKER", "").strip().lower() in {"1", "true", "yes"}:
+        from .live_feed_worker import run as worker_run
+
+        interval = float(config.GTFS_RT_POLL_SECONDS)
+        task = asyncio.create_task(worker_run(interval, once=False))
+        print(f"[inline-worker] GTFS-RT polling every {interval}s")
+    yield
+    if task is not None:
+        task.cancel()
+
+
+app = FastAPI(title="commuttify API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
