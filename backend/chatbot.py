@@ -22,6 +22,23 @@ from .live_feed_worker import LiveStore
 GREETINGS = ("hi", "hello", "hey", "namaste", "good morning", "good evening")
 HELP_KEYS = ("help", "what can you do", "features", "commands")
 
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+_HINGLISH_MARKERS = (
+    " se ", " hai", "hain", "jaana", "jana ", "kitna", "kitne", "mujhe",
+    "kaise", "kaha ", "kaun", "konsi", "batao", "chahiye", "nahi", "nahin",
+    "karo", "bhai", "hoon", "raha", "rahi",
+)
+
+
+def _reply_lang(text: str) -> str:
+    """'hi' (Devanagari), 'hinglish', or 'en' — for rule-replies only."""
+    if _DEVANAGARI_RE.search(text):
+        return "hi"
+    low = f" {text.lower()} "
+    if any(m in low for m in _HINGLISH_MARKERS):
+        return "hinglish"
+    return "en"
+
 # Hindi/Hinglish -> English normalization (longest phrases first).
 # Applied to a COPY used for intent + place extraction; the user's original
 # text is what the LLM (if configured) receives.
@@ -89,7 +106,10 @@ SYSTEM_PROMPT = (
 
 def detect_intent(message: str) -> str:
     lower = message.lower().strip()
-    if any(lower == g or lower.startswith(g) for g in GREETINGS):
+    # strip punctuation so "hi!" / "hello," count as greetings but "himanshu" doesn't
+    bare = re.sub(r"[^a-z0-9\s]", " ", lower)
+    bare = re.sub(r"\s+", " ", bare).strip()
+    if any(bare == g or bare.startswith(g + " ") for g in GREETINGS):
         return "greeting"
     if any(k in lower for k in HELP_KEYS):
         return "help"
@@ -109,9 +129,27 @@ def detect_intent(message: str) -> str:
     return "general"
 
 
+# leading filler words users type before a place name
+_FILLER_WORDS = frozenset({
+    "ok", "okay", "yes", "i", "want", "to", "go", "going", "please", "bhai",
+    "mujhe", "mera", "the", "from", "how", "do", "get", "tell", "me", "about",
+    "route", "bus", "jaana", "jana", "show", "find", "plan", "trip", "my",
+})
+
+
+def _strip_filler(fragment: str) -> str:
+    frag = fragment.strip(" ?.,!")
+    while True:
+        words = frag.split()
+        if len(words) > 1 and words[0].lower() in _FILLER_WORDS:
+            frag = " ".join(words[1:])
+        else:
+            return frag
+
+
 def _resolve(fragment: str) -> dict | None:
     """Best place match for a text fragment (recommendation engine)."""
-    fragment = fragment.strip(" ?.,!")
+    fragment = _strip_filler(fragment)
     if not fragment:
         return None
     hits = recommend.recommend(fragment, limit=1)
@@ -134,17 +172,22 @@ def _extract_places(message: str) -> list[dict]:
 
 
 def _two_places(message: str) -> tuple[dict, dict] | None:
+    # a journey pair needs confident matches (tier 4+ = 600); the fuzzy
+    # band (400-500) happily matches unrelated stops and derails planning
+    def confident(hit: dict | None) -> dict | None:
+        return hit if hit and hit.get("score", 0) >= 600 else None
+
     m = re.search(r"\bfrom\s+(.+?)\s+to\s+(.+?)(?:[?.!]|$)",
                   message, flags=re.IGNORECASE)
     if m:
-        a, b = _resolve(m.group(1)), _resolve(m.group(2))
+        a, b = confident(_resolve(m.group(1))), confident(_resolve(m.group(2)))
         if a and b and a["stop_id"] != b["stop_id"]:
             return a, b
     # Hindi/Hinglish: "kashmiri gate se aiims jaana hai"
     m = re.search(r"(.+?)\s+se\s+(.+?)(?:\s+(?:want|going|how|tell|now|please)\b|[?.!]|$)",
                   message, flags=re.IGNORECASE)
     if m:
-        a, b = _resolve(m.group(1)), _resolve(m.group(2))
+        a, b = confident(_resolve(m.group(1))), confident(_resolve(m.group(2)))
         if a and b and a["stop_id"] != b["stop_id"]:
             return a, b
     found = _extract_places(message)
@@ -320,12 +363,26 @@ def _fallback(intent: str, message: str, context: str | None) -> str:
     if intent in ("route", "time") and context:
         return context
     if intent in ("route", "time"):
+        lang = _reply_lang(message)
+        if lang == "hinglish":
+            return ("Dono jagah pehchan nahi paa raha. Aise poochhein: "
+                    "\"Kashmiri Gate se Nehru Place jaana hai\" ya "
+                    "\"Route from Kashmere Gate to Nehru Place\"")
+        if lang == "hi":
+            return ("मैं दोनों जगहें पहचान नहीं पाया। ऐसे पूछें: "
+                    "\"कश्मीरी गेट से नेहरू प्लेस जाना है\"")
         return ("I couldn't identify both places. Try: "
                 "\"Route from Rohini Sec 22 Terminal to Azadpur Terminal\" — "
                 "or Hinglish: \"Rohini Sec 22 se Azadpur jaana hai\"")
     if intent == "stop_info" and context:
         return context
     if intent == "stop_info":
+        lang = _reply_lang(message)
+        if lang == "hinglish":
+            return ("Kaun sa stop? Try: \"Tell me about Lakhhi Ram Park\" "
+                    "ya \"Lakhhi Ram Park ke baare me batao\"")
+        if lang == "hi":
+            return ("कौन सा स्टॉप? ऐसे पूछें: \"लखी राम पार्क के बारे में बताओ\"")
         return "Which stop? Try: \"Tell me about Lakhhi Ram Park\""
     if intent == "live":
         return context or _live_context()
@@ -344,8 +401,13 @@ def process_message(message: str) -> str:
     norm = _normalize_hinglish(message)
     intent = detect_intent(norm)
 
+    # small talk: answer from rules so the LLM's strict-scope prompt
+    # can never turn a friendly "hi" into a refusal
+    if intent in ("greeting", "help"):
+        return _fallback(intent, norm, None)
+
     # bus-only scope: refuse clearly off-topic questions before any LLM call
-    if intent not in ("greeting", "help") and not _is_bus_related(norm):
+    if not _is_bus_related(norm):
         return OUT_OF_SCOPE
 
     context: str | None = None
@@ -358,6 +420,11 @@ def process_message(message: str) -> str:
             context = _live_context()
     except Exception:  # noqa: BLE001 — never break the chat on engine errors
         context = None
+
+    # journey/stop questions with no engine context: give an actionable
+    # example instead of letting the LLM report "no data"
+    if intent in ("route", "stop_info") and context is None:
+        return _fallback(intent, norm, None)
 
     reply = _llm_reply(context or "", message)
     if reply:
