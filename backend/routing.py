@@ -36,6 +36,8 @@ OPTION_PRESETS = (
     ("fastest", 60.0),
     ("balanced", config.TRANSFER_PENALTY_S),
     ("fewest_transfers", 600.0),
+    # Effectively bans transfers: surfaces a single-bus ride when one exists.
+    ("direct", 1_000_000.0),
 )
 
 
@@ -271,6 +273,8 @@ def _assemble(graph: Graph, origin: tuple[float, float],
             "depart": _iso(depart), "arrive": _iso(result["arrival"]),
             "duration_min": round(walk_total / 60, 1),
             "distance_m": round(walk_total * config.WALK_SPEED_MPS),
+            "from_lat": origin[0], "from_lon": origin[1],
+            "to_lat": dest[0], "to_lon": dest[1],
         })
         return _option(legs, depart, result["arrival"], label)
 
@@ -283,6 +287,9 @@ def _assemble(graph: Graph, origin: tuple[float, float],
         "depart": _iso(depart), "arrive": _iso(t_board0),
         "duration_min": round((t_board0 - depart) / 60, 1),
         "distance_m": round((t_board0 - depart) * config.WALK_SPEED_MPS),
+        "from_lat": origin[0], "from_lon": origin[1],
+        "to_lat": graph.stop_lats.get(access_stop),
+        "to_lon": graph.stop_lons.get(access_stop),
     })
 
     # group consecutive transitions that share (route, direction)
@@ -303,12 +310,24 @@ def _assemble(graph: Graph, origin: tuple[float, float],
         to_stop = g[-1][1].to_stop
         sources = [edge_seconds(e, tb, live, hist)[1]
                    for (_, e, tb, _) in g]
+        stop_ids = [from_stop] + [e.to_stop for (_, e, _, _) in g]
         legs.append({
             "type": "bus",
             "route": e0.route_id,
+            "route_name": _route_name(e0.route_id),
             "direction": e0.direction,
             "from": graph.stop_names.get(from_stop, from_stop),
             "to": graph.stop_names.get(to_stop, to_stop),
+            "from_id": from_stop,
+            "to_id": to_stop,
+            "from_lat": graph.stop_lats.get(from_stop),
+            "from_lon": graph.stop_lons.get(from_stop),
+            "to_lat": graph.stop_lats.get(to_stop),
+            "to_lon": graph.stop_lons.get(to_stop),
+            "stop_ids": stop_ids,
+            "stop_names": [graph.stop_names.get(s, s) for s in stop_ids],
+            "coords": [[graph.stop_lats[s], graph.stop_lons[s]]
+                       for s in stop_ids if s in graph.stop_lats],
             "depart": _iso(t_dep), "arrive": _iso(t_arr),
             "duration_min": round((t_arr - t_dep) / 60, 1),
             "stops": len(g),
@@ -326,6 +345,9 @@ def _assemble(graph: Graph, origin: tuple[float, float],
         "depart": _iso(t_last), "arrive": _iso(result["arrival"]),
         "duration_min": round((result["arrival"] - t_last) / 60, 1),
         "distance_m": round((result["arrival"] - t_last) * config.WALK_SPEED_MPS),
+        "from_lat": graph.stop_lats.get(final_stop),
+        "from_lon": graph.stop_lons.get(final_stop),
+        "to_lat": dest[0], "to_lon": dest[1],
     })
     return _option(legs, depart, result["arrival"], label)
 
@@ -359,6 +381,20 @@ def _signature(option: dict) -> tuple:
 _graph: Graph | None = None
 _hist = HistCache()
 _warmed = False
+_route_names: dict[str, str] | None = None
+
+
+def _route_name(route_id: str) -> str:
+    """Display name for a route (route_short_name → long name → id)."""
+    global _route_names
+    if _route_names is None:
+        with db.get_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT route_id, COALESCE(NULLIF(route_short_name, ''), "
+                "       NULLIF(route_long_name, ''), route_id) FROM routes"
+            )).fetchall()
+        _route_names = {str(r[0]): str(r[1]) for r in rows}
+    return _route_names.get(str(route_id), str(route_id))
 
 
 def get_graph() -> Graph:
@@ -370,10 +406,11 @@ def get_graph() -> Graph:
 
 def refresh() -> None:
     """Drop cached graph + historical data (call after re-ingest)."""
-    global _graph, _warmed
+    global _graph, _warmed, _route_names
     _graph = None
     _hist.clear()
     _warmed = False
+    _route_names = None
 
 
 def warm() -> None:
@@ -386,6 +423,7 @@ def warm() -> None:
     g = get_graph()
     routes = {e.route_id for edges in g.out.values() for e in edges}
     _hist.ensure(routes)
+    _route_name("")  # preload route display names
     _warmed = True
     print(f"[warm] graph ready; historical speeds for {len(routes)} routes")
 
@@ -455,6 +493,8 @@ def plan_journeys(from_lat: float, from_lon: float,
             continue
         opt = _assemble(graph, (from_lat, from_lon), (to_lat, to_lon),
                         depart, res, label, live, _hist)
+        if label == "direct" and opt["transfers"] > 0:
+            continue  # no single-bus ride exists for this pair
         sig = _signature(opt)
         if sig in seen:
             continue
