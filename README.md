@@ -5,6 +5,8 @@ a traffic model built from real-time + historical Delhi bus GPS data, and a
 Google-Maps-like **journey planning API that computes ETAs itself** — no
 Google Directions calls in the serving path.
 
+Brief method/assumptions/limitations: [`TECHNICAL_NOTE.md`](TECHNICAL_NOTE.md).
+
 ## What it does
 
 - **Own routing API** — `GET /journeys` plans walk + bus journeys between any
@@ -104,7 +106,7 @@ flowchart TD
 
 Historical pipeline memory note: each worker holds pandas chunks of the
 ~31 M-row `vehicle_feed`; run **2 workers max** on a 16 GB machine
-(`outputs/run_hist_waves.ps1` orchestrates waves of 2 with a free-RAM gate).
+(`scripts/run_hist_waves.ps1` orchestrates waves of 2 with a free-RAM gate).
 
 ## Journey request sequence
 
@@ -169,9 +171,13 @@ the ETA math is fully inspectable.
 | `route_segments` | 80,861 directed edges: geometry, length_m, source/target node ids |
 | `route_nodes` | 6,862 junction nodes (degree ≥ 1, snapped stop endpoints) |
 | `shape_geoms` | 3,498 decoded shapes |
-| `historical_segment_speeds` | segment × dow × hour: avg speed, sample count (from 11-day GPS) |
+| `historical_segment_speeds` | segment × dow × hour: avg speed, sample count (from 30-day GPS) |
 
 ## Quick start
+
+Prerequisites: **Python 3.13+**, **Docker Desktop**, **Node 20+**, a
+`GTFS_RT_KEY` from the transportstack portal, and the hackathon GPS day
+files (not committed — ~125 GB, place under `data/`).
 
 ```powershell
 # 1. infra
@@ -186,13 +192,13 @@ python -m backend.ingest_gtfs --gtfs-dir data\gtfs --rebuild
 
 # 4. historical model (30 day files; run 2 at a time — memory bound)
 python -m backend.process_historical --days 2026_10_01 --chunksize 100000
-#    ... repeat per day, or run outputs\run_hist_waves.ps1
+#    ... repeat per day, or run scripts\run_hist_waves.ps1
 
 # 5. live worker (needs GTFS_RT_KEY in .env)
 python -m backend.live_feed_worker
 
-# 6. API
-python -m uvicorn backend.main:app --port 8010
+# 6. API (serves on :8005 — matches the frontend default)
+python -m backend.main
 
 # 7. frontend (separate terminal)
 cd frontend && npm install && npm run dev
@@ -200,6 +206,9 @@ cd frontend && npm install && npm run dev
 
 Copy `.env.example` → `.env` first and fill in `GTFS_RT_KEY`
 (verified working: ~5.2k vehicle entities / poll).
+
+Smoke tests (API must be running): `python scripts\test_routing.py`,
+`test_recommend.py`, `test_chatbot.py`, `test_live_worker.py`.
 
 ## API
 
@@ -218,7 +227,7 @@ Copy `.env.example` → `.env` first and fill in `GTFS_RT_KEY`
 Example:
 
 ```powershell
-curl "http://localhost:8010/journeys?from_lat=28.71797&from_lon=77.06390&to_lat=28.70060&to_lon=77.09380"
+curl "http://localhost:8005/journeys?from_lat=28.71797&from_lon=77.06390&to_lat=28.70060&to_lon=77.09380"
 # -> 14.1 min, bus 1189, walk 1.2 min (legs carry source: live|historical|schedule)
 ```
 
@@ -258,11 +267,12 @@ Run it with `npm run dev` after the backend is up (API base in
 backend/          FastAPI app, routing, ingest, live worker, crawler, chatbot, validation
 frontend/         React showcase (separately owned)
 sql/              001_schema.sql (PostGIS), 010_topology.sql (pure-PostGIS graph)
+scripts/          run_hist_waves.ps1 + smoke tests (test_*.py)
 data/gtfs/        static GTFS (drop portal download here; not committed)
 data/gtfs_sample/ tiny sample feed for tests
 outputs/          run logs, validation report, observed actuals cache (not committed)
-Dockerfile, render.yaml, DEPLOY.md, docker-compose.yml, Dockerfile.db,
-requirements.txt, .env.example, README.md
+Dockerfile, render.yaml, DEPLOY.md, TECHNICAL_NOTE.md, docker-compose.yml,
+Dockerfile.db, requirements.txt, .env.example, README.md
 ```
 
 ## Deployment (cloud)

@@ -90,7 +90,8 @@ Verify: `SELECT count(*) FROM route_segments;` → ~80,861.
 ## Notes
 
 - CORS is open (`*`) — fine for the demo; tighten to the Vercel domain later.
-- Local dev unchanged: `docker compose up -d` + `uvicorn … --port 8010`,
+- Local dev unchanged: `docker compose up -d` + `python -m backend.main`
+  (serves on `:8005`, the frontend default),
   `.env` stays local and untracked.
 - Render free Postgres expires after 90 days (fine for the hackathon);
   Supabase free is longer-lived if you prefer Option B.
