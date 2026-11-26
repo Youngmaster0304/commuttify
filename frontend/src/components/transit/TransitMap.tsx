@@ -12,6 +12,7 @@ import {
   segmentKey,
   segmentSpeed,
   speedBand,
+  type Leg,
   type SpeedBand,
 } from "@/lib/transit/model";
 import type { TransitMapProps } from "./map-types";
@@ -24,6 +25,14 @@ const cssVar = (name: string) => getComputedStyle(document.documentElement).getP
 
 const bandColor = (b: SpeedBand) => cssVar(`--traffic-${b}`);
 const bandLabel = (b: SpeedBand) => SPEED_BANDS.find((x) => x.band === b)?.label ?? b;
+
+/** Polyline points for a bus leg: real backend coords first, local stop ids as fallback. */
+function journeyPts(leg: Extract<Leg, { kind: "bus" }>): L.LatLngTuple[] {
+  if (leg.coords && leg.coords.length >= 2) return leg.coords;
+  return leg.stops
+    .map((id) => (STOP_BY_ID[id] ? ([STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple) : null))
+    .filter((p): p is L.LatLngTuple => p !== null);
+}
 
 interface SimBus {
   route: BusRoute;
@@ -88,7 +97,7 @@ export default function TransitMap(props: TransitMapProps) {
       zoomControl: false,
       preferCanvas: false,
     });
-    L.control.zoom({ position: "bottomright" }).addTo(map);
+    L.control.zoom({ position: window.innerWidth < 1024 ? "topright" : "bottomright" }).addTo(map);
     mapRef.current = map;
 
     let loaded = 0;
@@ -349,9 +358,7 @@ export default function TransitMap(props: TransitMapProps) {
       if (selected && j.id === selected.id) continue;
       for (const leg of j.legs) {
         if (leg.kind !== "bus") continue;
-        const pts = leg.stops
-          .map((id) => (STOP_BY_ID[id] ? ([STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple) : null))
-          .filter((p): p is L.LatLngTuple => p !== null);
+        const pts = journeyPts(leg);
         if (pts.length < 2) continue;
         L.polyline(pts, { pane: "journey", color: "#60a5fa", weight: 3, opacity: 0.20, dashArray: "3 7", lineCap: "round" })
           .on("click", (e) => {
@@ -375,9 +382,7 @@ export default function TransitMap(props: TransitMapProps) {
           pts.forEach((p) => bounds.extend(p));
           return;
         }
-        const pts = leg.stops
-          .map((id) => (STOP_BY_ID[id] ? ([STOP_BY_ID[id]!.lat, STOP_BY_ID[id]!.lng] as L.LatLngTuple) : null))
-          .filter((p): p is L.LatLngTuple => p !== null);
+        const pts = journeyPts(leg);
 
         if (pts.length >= 2) {
           // 1. Soft glowing outer aura / halo

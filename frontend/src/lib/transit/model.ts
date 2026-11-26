@@ -225,6 +225,10 @@ export type Leg =
       avgSpeed: number;
       boardMin: number;
       alightMin: number;
+      /** Set on legs mapped from the real backend /journeys API. */
+      source?: "live" | "historical" | "schedule";
+      stopNames?: string[];
+      coords?: [number, number][];
     };
 
 export interface Journey {

@@ -135,6 +135,11 @@ function LegTimeline({ journey: j }: { journey: Journey }) {
         }
         busCount++;
         const isTransfer = busCount > 1;
+        const viaNames = (leg.stopNames ?? leg.stops.map((id) => STOP_BY_ID[id]?.name ?? id)).slice(1, -1);
+        const via =
+          viaNames.length > 0
+            ? ` · via ${viaNames.slice(0, 3).join(", ")}${viaNames.length > 3 ? `, +${viaNames.length - 3} more` : ""}`
+            : "";
         return (
           <Fragment key={i}>
             {isTransfer && (
@@ -148,12 +153,12 @@ function LegTimeline({ journey: j }: { journey: Journey }) {
                   Board <RouteChip number={leg.route.number} fleet={leg.route.fleet} /> at {leg.from.name}
                 </span>
               }
-              sub={`${FLEET_LABEL[leg.route.fleet]} · every ${leg.headway} min · expected wait ${Math.round(leg.waitMin)} min`}
+              sub={`${FLEET_LABEL[leg.route.fleet]}${leg.headway > 0 ? ` · every ${leg.headway} min` : ""} · expected wait ${Math.round(leg.waitMin)} min${leg.source ? ` · ${leg.source} speeds` : ""}`}
             />
             <TimelineRow
               dot="ride"
               title={`Ride ${leg.stops.length - 1} major stops · ${fmtKm(leg.distanceKm)}`}
-              sub={`${Math.round(leg.rideMin)} min at ~${Math.round(leg.avgSpeed)} km/h modeled${leg.stops.length > 2 ? ` · via ${leg.stops.slice(1, -1).map((id) => STOP_BY_ID[id]!.name).join(", ")}` : ""}`}
+              sub={`${Math.round(leg.rideMin)} min at ~${Math.round(leg.avgSpeed)} km/h modeled${via}`}
             />
             <TimelineRow dot="alight" time={formatClock(leg.alightMin)} title={`Get off at ${leg.to.name}`} />
           </Fragment>

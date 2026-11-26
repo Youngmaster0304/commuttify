@@ -311,9 +311,11 @@ export async function fetchBackendJourneys(
   fromLon: number,
   toLat: number,
   toLon: number,
+  departAt?: string,
 ): Promise<any> {
-  const url = `${API_BASE}/journeys?from_lat=${fromLat}&from_lon=${fromLon}&to_lat=${toLat}&to_lon=${toLon}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  const dep = departAt ? `&depart_at=${encodeURIComponent(departAt)}` : "";
+  const url = `${API_BASE}/journeys?from_lat=${fromLat}&from_lon=${fromLon}&to_lat=${toLat}&to_lon=${toLon}${dep}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }

@@ -6,6 +6,7 @@ import {
   ArrowUpDown,
   Bus,
   BusFront,
+  ChevronDown,
   Crosshair,
   MessageSquare,
   Radio,
@@ -25,7 +26,8 @@ import { ChatbotDrawer } from "@/components/transit/ChatbotDrawer";
 import { ShowcaseLanding } from "@/components/showcase/ShowcaseLanding";
 import type { PickTarget } from "@/components/transit/map-types";
 import { PRESETS, STOP_BY_ID, type Day, type StopId } from "@/lib/transit/data";
-import { placeFromStop, planJourneys, type LatLng, type Place } from "@/lib/transit/model";
+import { placeFromStop, planJourneys, type Journey, type LatLng, type Place } from "@/lib/transit/model";
+import { departAtIso, mapBackendJourneys } from "@/lib/transit/backendJourneys";
 import { fetchBackendJourneys, fetchLiveTweets, type TweetData } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +68,7 @@ function MapFallback() {
 function Index() {
   const [viewMode, setViewMode] = useState<"showcase" | "map">("showcase");
   const [activeTab, setActiveTab] = useState<"planner" | "tweets">("planner");
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [origin, setOrigin] = useState<Place | null>(() => placeFromStop(DEFAULT.origin));
   const [destination, setDestination] = useState<Place | null>(() => placeFromStop(DEFAULT.destination));
   const [day, setDay] = useState<Day>(DEFAULT.day);
@@ -86,31 +89,49 @@ function Index() {
       .catch(() => {});
   }, []);
 
-  // Ping real-time FastAPI PostGIS & Redis routing backend to verify live connectivity
+  // Real backend (PostGIS routing) drives the planner; the bundled local
+  // model is the offline fallback when the API is unreachable.
+  const [remoteJourneys, setRemoteJourneys] = useState<Journey[] | null>(null);
+
   useEffect(() => {
-    if (!origin || !destination) return;
+    if (!origin || !destination) {
+      setRemoteJourneys(null);
+      setBackendLive(false);
+      return;
+    }
     let active = true;
-    fetchBackendJourneys(origin.lat, origin.lng, destination.lat, destination.lng)
+    fetchBackendJourneys(
+      origin.lat,
+      origin.lng,
+      destination.lat,
+      destination.lng,
+      departAtIso(day, minutes),
+    )
       .then((data) => {
         if (!active) return;
-        if (data && Array.isArray(data.options) && data.options.length > 0) {
-          setBackendLive(true);
-        } else {
+        if (!data || !Array.isArray(data.options)) {
           setBackendLive(false);
+          setRemoteJourneys(null);
+          return;
         }
+        setBackendLive(true);
+        setRemoteJourneys(mapBackendJourneys(data, minutes));
       })
       .catch(() => {
-        if (active) setBackendLive(false);
+        if (!active) return;
+        setBackendLive(false);
+        setRemoteJourneys(null);
       });
     return () => {
       active = false;
     };
-  }, [origin, destination]);
+  }, [origin, destination, day, minutes]);
 
-  const journeys = useMemo(
+  const localJourneys = useMemo(
     () => (origin && destination ? planJourneys(origin, destination, day, minutes) : []),
     [origin, destination, day, minutes],
   );
+  const journeys = remoteJourneys ?? localJourneys;
 
   const selected = journeys.find((j) => j.id === selectedId) ?? journeys[0] ?? null;
   const fastestId = journeys.reduce<string | null>(
@@ -193,47 +214,81 @@ function Index() {
 
   // Interactive Map & Journey Planner View Mode
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background">
       {/* Top Bar with Showcase Return */}
-      <header className="h-14 bg-[#121214] text-white px-4 sm:px-6 flex items-center justify-between border-b border-neutral-800 z-50 shrink-0">
+      <header className="h-14 bg-[#121214] text-white px-4 sm:px-6 flex items-center justify-between gap-2 sm:gap-3 border-b border-neutral-800 z-50 shrink-0">
         <button
           type="button"
           onClick={() => setViewMode("showcase")}
-          className="flex items-center gap-2 text-xs font-medium text-neutral-300 hover:text-white transition-colors bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded-full cursor-pointer"
+          className="flex shrink-0 items-center gap-2 text-xs font-medium text-neutral-300 hover:text-white transition-colors bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded-full cursor-pointer"
         >
           <ArrowLeft className="size-3.5" />
-          <span>← Back to Showcase</span>
+          <span className="hidden sm:inline">Back to Showcase</span>
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="size-7 rounded-lg bg-black text-amber-400 flex items-center justify-center font-bold text-xs border border-neutral-700">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="size-7 shrink-0 rounded-lg bg-black text-amber-400 flex items-center justify-center font-bold text-xs border border-neutral-700">
             <Bus className="size-4" />
           </div>
-          <span className="font-display font-black text-base tracking-tight text-white">Commuttify</span>
+          <span className="truncate font-display font-black text-base tracking-tight text-white">Commuttify</span>
           <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-neutral-800 text-[10px] font-mono text-neutral-400">
             DELHI BUSWAY
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             size="sm"
             variant="outline"
             onClick={() => setActiveTab(activeTab === "planner" ? "tweets" : "planner")}
             className="h-8 text-xs rounded-full border-neutral-700 text-neutral-200 hover:text-white hover:bg-neutral-800 cursor-pointer"
           >
-            {activeTab === "planner" ? `View Tweets (${tweets.length})` : "Journey Planner"}
+            {activeTab === "planner" ? (
+              <>
+                <span className="sm:hidden">Tweets ({tweets.length})</span>
+                <span className="hidden sm:inline">View Tweets ({tweets.length})</span>
+              </>
+            ) : (
+              <>
+                <span className="sm:hidden">Planner</span>
+                <span className="hidden sm:inline">Journey Planner</span>
+              </>
+            )}
           </Button>
         </div>
       </header>
 
       {/* Main Workspace: Left Controls / Tweets Feed & Right Map */}
       <main className="relative flex flex-1 flex-col overflow-hidden lg:flex-row">
-        {/* Left Sidebar Pane */}
+        {/* Planner pane — bottom sheet on mobile, left sidebar on desktop */}
         <aside
-          className="scrollbar-thin z-10 flex w-full flex-col border-b border-border bg-card shadow-float lg:h-full lg:w-[440px] lg:shrink-0 lg:border-r lg:border-b-0 overflow-y-auto"
+          className={cn(
+            "scrollbar-thin flex w-full flex-col border-t border-border bg-card shadow-float overflow-hidden",
+            // mobile: Google-Maps-style bottom sheet over the map
+            "absolute inset-x-0 bottom-0 z-[600] rounded-t-2xl transition-[max-height] duration-300 ease-out",
+            sheetOpen ? "max-h-[65dvh] overflow-y-auto" : "max-h-[7rem]",
+            // desktop: original left sidebar
+            "lg:static lg:z-10 lg:h-full lg:w-[440px] lg:shrink-0 lg:max-h-none lg:overflow-y-auto lg:rounded-none lg:border-t-0 lg:border-r lg:border-b-0 lg:transition-none",
+          )}
           aria-label="Journey planning and live feeds"
         >
+          {/* mobile grab handle */}
+          <button
+            type="button"
+            onClick={() => setSheetOpen((v) => !v)}
+            aria-expanded={sheetOpen}
+            className="sticky top-0 z-10 flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-t-2xl bg-card px-4 pt-2.5 pb-1 lg:hidden"
+          >
+            <span className="h-1 w-10 rounded-full bg-border" />
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {sheetOpen
+                ? "Hide panel"
+                : activeTab === "planner"
+                  ? "Plan a journey"
+                  : "Live tweets & alerts"}
+              <ChevronDown className={cn("size-3.5 transition-transform", sheetOpen && "rotate-180")} />
+            </span>
+          </button>
           {/* Segmented Mode Switcher */}
           <div className="p-3 border-b border-border bg-secondary/30">
             <div className="grid grid-cols-2 p-1 bg-secondary rounded-xl text-xs font-medium">
@@ -422,7 +477,7 @@ function Index() {
         </aside>
 
         {/* Right Pane: Interactive Map */}
-        <section className="relative h-[75vh] min-h-[480px] flex-1 lg:h-auto" aria-label="Delhi bus traffic map">
+        <section className="relative min-h-0 flex-1 lg:h-auto" aria-label="Delhi bus traffic map">
           <ClientOnly fallback={<MapFallback />}>
             <Suspense fallback={<MapFallback />}>
               <TransitMap
@@ -447,9 +502,9 @@ function Index() {
           </ClientOnly>
 
           {/* Map Overlay Controls */}
-          <div className="pointer-events-none absolute inset-0 z-[500] p-3">
+          <div className="pointer-events-none absolute inset-0 z-[500] p-3 pb-32 lg:pb-3">
             <div className="flex h-full flex-col justify-between gap-3">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="pointer-events-auto">
                   <NetworkStatus
                     day={day}
