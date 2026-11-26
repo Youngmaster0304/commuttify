@@ -2,6 +2,7 @@
 
 Endpoints
 ---------
+GET /                            service root (always200 — uptime monitors)
 GET /health                     liveness + db/redis checks
 GET /api/search/autocomplete    place recommendation engine (type a word ->
                                 ranked stop suggestions), metro-parity with
@@ -50,6 +51,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root() -> dict:
+    """Service root — returns 200 so monitors that ping / don't false-alarm."""
+    return {"service": "commuttify-api", "health": "/health"}
 
 
 @app.get("/health")
