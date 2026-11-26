@@ -86,7 +86,7 @@ export function ChatbotDrawer() {
       {/* Floating Launcher Button */}
       <Button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-4 right-4 z-[990] size-12 rounded-full shadow-xl bg-primary text-primary-foreground hover:scale-105 transition-all p-0"
+        className="fixed bottom-32 right-4 lg:bottom-4 z-[990] size-12 rounded-full shadow-xl bg-primary text-primary-foreground hover:scale-105 transition-all p-0"
         aria-label="Open Bus Assistant"
       >
         {open ? <X className="size-5" /> : <MessageSquare className="size-5" />}

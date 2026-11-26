@@ -1,4 +1,5 @@
-import { Activity, AlertCircle, Bus, Layers, MessageSquare } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, AlertCircle, Bus, Layers, MessageSquare, X } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -46,22 +47,63 @@ export function NetworkStatus({
   const stats = cityStats(day, minutes);
   const avg = useTween(stats.avgSpeed);
   const label = SPEED_BANDS.find((b) => b.band === stats.band)?.label;
+  // null = first paint / SSR: CSS decides (hidden on phones, shown on desktop)
+  const [collapsed, setCollapsed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setCollapsed(window.matchMedia("(max-width: 767px)").matches);
+  }, []);
 
   return (
-    <div className="w-[245px] rounded-xl border border-border bg-card p-3 shadow-float">
+    <>
+      {/* compact pill — shown only while the card is hidden */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        title="Show network status"
+        className={cn(
+          "items-center gap-2 rounded-full border border-border bg-card py-2 pl-3 pr-3.5 shadow-float cursor-pointer",
+          collapsed === true ? "flex" : "hidden",
+        )}
+      >
+        <span className="live-dot" />
+        <span className="text-xs font-semibold tabular">{Math.round(avg)} km/h</span>
+        <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground", BAND_BG[stats.band])}>
+          {label}
+        </span>
+        {tweetCount > 0 && <span className="text-[10px] font-medium text-rose-600">{tweetCount} alerts</span>}
+      </button>
+
+      <div
+        className={cn(
+          "w-[245px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card p-3 shadow-float md:max-w-none",
+          collapsed === null ? "hidden md:block" : collapsed ? "hidden" : "block",
+        )}
+      >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           <span className="live-dot" /> Modeled network
         </div>
-        {onToggleTweetsPanel && (
+        <div className="flex items-center gap-1.5">
+          {onToggleTweetsPanel && (
+            <button
+              onClick={onToggleTweetsPanel}
+              type="button"
+              className="flex items-center gap-1 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold px-1.5 py-0.5 text-[10px] hover:bg-rose-500/20 transition-colors"
+            >
+              <AlertCircle className="size-3" /> {tweetCount} Alerts
+            </button>
+          )}
           <button
-            onClick={onToggleTweetsPanel}
             type="button"
-            className="flex items-center gap-1 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold px-1.5 py-0.5 text-[10px] hover:bg-rose-500/20 transition-colors"
+            onClick={() => setCollapsed(true)}
+            aria-label="Hide network status card"
+            title="Hide"
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            <AlertCircle className="size-3" /> {tweetCount} Alerts
+            <X className="size-3.5" />
           </button>
-        )}
+        </div>
       </div>
 
       <div className="mt-1 flex items-baseline gap-1.5">
@@ -112,7 +154,8 @@ export function NetworkStatus({
           )}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

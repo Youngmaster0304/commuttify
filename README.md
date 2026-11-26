@@ -1,11 +1,33 @@
 # commuttify — Real-time Bus Traffic Model & Journey Planner (Delhi)
 
+**Live:** [Web app](https://commuttify.vercel.app) ·
+[API health](https://commuttify-api.onrender.com/health) ·
+[Technical note](TECHNICAL_NOTE.md) ·
+[Deployment guide](DEPLOY.md)
+
 **Delhi Transport Stack Hackathon 2026**:
 a traffic model built from real-time + historical Delhi bus GPS data, and a
 Google-Maps-like **journey planning API that computes ETAs itself** — no
 Google Directions calls in the serving path.
 
 Brief method/assumptions/limitations: [`TECHNICAL_NOTE.md`](TECHNICAL_NOTE.md).
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Architecture](#architecture)
+- [Data workflow](#data-workflow)
+- [Journey request sequence](#journey-request-sequence)
+- [Tech stack](#tech-stack)
+- [Data model (core tables)](#data-model-core-tables)
+- [Quick start](#quick-start)
+- [API](#api)
+- [Validation (success criterion)](#validation-success-criterion)
+- [Frontend](#frontend)
+- [Layout](#layout)
+- [Deployment (cloud)](#deployment-cloud)
+- [Chatbot LLM endpoints](#chatbot-llm-endpoints)
+- [Hackathon criteria mapping](#hackathon-criteria-mapping)
 
 ## What it does
 

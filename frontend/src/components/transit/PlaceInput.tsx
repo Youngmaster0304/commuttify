@@ -132,7 +132,7 @@ export function PlaceInput({
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[320px] p-0 shadow-hard-lg border-2 border-black rounded-xl bg-white z-[700]" align="start">
+      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[min(320px,calc(100vw-1.5rem))] p-0 shadow-hard-lg border-2 border-black rounded-xl bg-white z-[700]" align="start">
         <Command shouldFilter={remotePlaces.length === 0}>
           <div className="relative">
             <CommandInput
