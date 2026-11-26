@@ -279,9 +279,11 @@ Dockerfile.db, requirements.txt, .env.example, README.md
 
 - **API + DB** — Render: Docker image from root `Dockerfile`, blueprint in
   `render.yaml` (free web service, `/health` check, `INLINE_WORKER=1`),
-  PostGIS database in Singapore. Step-by-step: [`DEPLOY.md`](DEPLOY.md).
-- **Frontend** — Vercel (`vercel.json` ready); set `VITE_API_BASE` to the
-  Render service URL.
+  PostGIS database in Singapore. Live:
+  [`https://commuttify-api.onrender.com/health`](https://commuttify-api.onrender.com/health).
+  Step-by-step: [`DEPLOY.md`](DEPLOY.md).
+- **Frontend** — Vercel (`vercel.json`, `VITE_API_BASE` set to the Render
+  URL). Live: [`https://commuttify.vercel.app`](https://commuttify.vercel.app).
 - **Uptime** — UptimeRobot pings `/health` (Render free tier sleeps).
 
 ## Chatbot LLM endpoints
