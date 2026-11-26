@@ -358,6 +358,7 @@ def _signature(option: dict) -> tuple:
 
 _graph: Graph | None = None
 _hist = HistCache()
+_warmed = False
 
 
 def get_graph() -> Graph:
@@ -369,9 +370,28 @@ def get_graph() -> Graph:
 
 def refresh() -> None:
     """Drop cached graph + historical data (call after re-ingest)."""
-    global _graph
+    global _graph, _warmed
     _graph = None
     _hist.clear()
+    _warmed = False
+
+
+def warm() -> None:
+    """Preload the graph + historical speeds for every route.
+
+    Run in a background thread at startup / on /health so the first
+    journey after a cold start does not pay the cross-region DB cost.
+    """
+    global _warmed
+    g = get_graph()
+    routes = {e.route_id for edges in g.out.values() for e in edges}
+    _hist.ensure(routes)
+    _warmed = True
+    print(f"[warm] graph ready; historical speeds for {len(routes)} routes")
+
+
+def is_warmed() -> bool:
+    return _warmed
 
 
 def _parse_depart(s: str | None) -> float:

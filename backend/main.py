@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
@@ -22,6 +23,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import chatbot, config, db, recommend, routing, tweets
+
+
+_warm_lock = threading.Lock()
+_warm_spawned = False
+
+
+def _start_warm() -> None:
+    """Kick a background graph+historical preload (idempotent, retryable)."""
+    global _warm_spawned
+    with _warm_lock:
+        if _warm_spawned:
+            return
+        _warm_spawned = True
+
+    def _run() -> None:
+        global _warm_spawned
+        try:
+            routing.warm()
+        except Exception as exc:  # noqa: BLE001 — never kill the ping path
+            print(f"[warm] failed: {exc}")
+            with _warm_lock:
+                _warm_spawned = False  # retry on the next /health ping
+
+    threading.Thread(target=_run, daemon=True, name="graph-warm").start()
 
 
 @asynccontextmanager
@@ -38,6 +63,7 @@ async def lifespan(_app: FastAPI):
         interval = float(config.GTFS_RT_POLL_SECONDS)
         task = asyncio.create_task(worker_run(interval, once=False))
         print(f"[inline-worker] GTFS-RT polling every {interval}s")
+    _start_warm()
     yield
     if task is not None:
         task.cancel()
@@ -61,6 +87,7 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
+    _start_warm()
     db_ok = db.ping()
     try:
         import redis as redis_lib
@@ -70,7 +97,8 @@ def health() -> dict:
     except Exception:
         redis_ok = False
     status = "ok" if db_ok else "degraded"
-    return {"status": status, "db": db_ok, "redis": redis_ok}
+    return {"status": status, "db": db_ok, "redis": redis_ok,
+            "warm": routing.is_warmed()}
 
 
 @app.get("/api/search/autocomplete")
@@ -112,7 +140,10 @@ def journeys(
 @app.post("/api/graph/refresh")
 def refresh_graph() -> dict:
     """Drop the cached routing graph + historical cache (after re-ingest)."""
+    global _warm_spawned
     routing.refresh()
+    with _warm_lock:
+        _warm_spawned = False  # next /health ping re-warms in background
     return {"status": "ok"}
 
 
